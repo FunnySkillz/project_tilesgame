@@ -29,6 +29,7 @@ The current prototype is intentionally small:
 - `docs/design_plan.md` defines the game plan.
 - `docs/implementation_phases.md` tracks the build phases.
 - `docs/art_plan.md` explains when generated figures and textures should happen.
+- `docs/graphify_evaluation.md` records the Graphify test and current GDScript limitation.
 
 ## Local Godot Install
 

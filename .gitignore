@@ -2,6 +2,10 @@
 .godot/
 .import/
 *.import
+*.uid
+
+# Graphify generated output
+graphify-out/
 
 # Godot export output
 exports/
