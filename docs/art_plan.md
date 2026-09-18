@@ -100,6 +100,8 @@ Avoid tiny detail. Every asset must read at phone size.
 
 Do not generate final textures yet.
 
+Phase 2 layout mechanics are now readable enough to support a first texture pass, but Phase 3 has just introduced fish species. Keep the current species-colored placeholder fish until the first progression slice settles.
+
 Next art milestone:
 
-After Phase 2 layout mechanics feel usable, generate a small prototype texture pack for water, land, road, pool, cutter, market, fish, meat, money, and customers.
+Generate a small prototype texture pack after the early Phase 3 fish/building needs are stable. The first pack should cover water, land, road, pool, cutter, market, minnow, carp, silverfish, meat, money, and customers.

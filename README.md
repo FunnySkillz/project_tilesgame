@@ -19,6 +19,9 @@ The current prototype is intentionally small:
 - pools work better beside water, cutters work better beside pools, markets work better beside roads
 - customers now wait on the road, lose patience, and leave if meat/market flow is too slow
 - unaffordable build and upgrade buttons are tinted, and upgrade buttons show current prices
+- water now spawns minnow, carp, and later silverfish
+- fish species use different colors and produce different meat yields
+- Net level 2 unlocks silverfish, and the goal line now points toward that progression step
 
 ## Design Docs
 

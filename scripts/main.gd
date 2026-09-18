@@ -3,6 +3,7 @@ extends Control
 enum TileKind { WATER, LAND, ROAD }
 enum BuildKind { NONE, POOL, CUTTER, MARKET }
 enum GoalStep { CATCH, STORE, PROCESS, SELL, UPGRADE, BUILD, COMPLETE }
+enum FishKind { MINNOW, CARP, SILVERFISH }
 
 const GRID_W := 8
 const GRID_H := 10
@@ -26,8 +27,8 @@ const MARKET_SELL_SECONDS := 1.25
 var tiles: Array = []
 var selected_tool := TOOL_CATCH
 var money := 30
-var carried_fish := 0
-var live_fish := 0
+var carried_fish_stock: Array = [0, 0, 0]
+var live_fish_stock: Array = [0, 0, 0]
 var meat := 0
 var net_level := 1
 var pool_level := 1
@@ -41,6 +42,7 @@ var cutter_progress := 0.0
 var status_text := "Tap water to catch fish. The starter fishery can already process and sell."
 var goal_step := GoalStep.CATCH
 var fish_caught_total := 0
+var fish_caught_by_kind: Array = [0, 0, 0]
 var fish_stored_total := 0
 var meat_processed_total := 0
 var meat_sold_total := 0
@@ -111,11 +113,13 @@ func _init_tiles() -> void:
 				kind = TileKind.WATER
 			elif y == GRID_H - 1:
 				kind = TileKind.ROAD
+			var fish_kind := _random_fish_kind()
 			var fish_count := randi_range(1, 2) if kind == TileKind.WATER and randf() < 0.45 else 0
 			row.append({
 				"kind": kind,
 				"building": BuildKind.NONE,
 				"fish": fish_count,
+				"fish_kind": fish_kind,
 				"spawn_timer": randf_range(2.0, 6.0)
 			})
 		tiles.append(row)
@@ -277,27 +281,27 @@ func _use_catch_tool(cell: Vector2i) -> void:
 			return
 
 		var caught: int = min(tile["fish"], net_level)
+		var fish_kind := int(tile["fish_kind"])
 		tile["fish"] -= caught
 		tiles[cell.y][cell.x] = tile
-		carried_fish += caught
+		_add_fish_to_stock(carried_fish_stock, fish_kind, caught)
 		fish_caught_total += caught
-		status_text = "Caught " + str(caught) + " fish. Tap a pool to store them."
-		_add_popup_for_cell(cell, "+" + str(caught) + " fish", Color("#f2d16b"))
+		_add_fish_to_stock(fish_caught_by_kind, fish_kind, caught)
+		status_text = "Caught " + str(caught) + " " + _fish_plural(fish_kind, caught) + ". Tap a pool to store them."
+		_add_popup_for_cell(cell, "+" + str(caught) + " " + _fish_name(fish_kind), _fish_color(fish_kind))
 		return
 
 	if tile["building"] == BuildKind.POOL:
-		if carried_fish <= 0:
+		if _carried_fish_total() <= 0:
 			status_text = "You are not carrying fish. Tap water first."
 			return
 
-		var room := _pool_capacity() - live_fish
+		var room := _pool_capacity() - _live_fish_total()
 		if room <= 0:
 			status_text = "Pools are full. Build or upgrade more capacity."
 			return
 
-		var moved: int = min(room, carried_fish)
-		carried_fish -= moved
-		live_fish += moved
+		var moved: int = _move_fish_between_stocks(carried_fish_stock, live_fish_stock, room)
 		fish_stored_total += moved
 		status_text = "Stored " + str(moved) + " live fish in pools."
 		_add_popup_for_cell(cell, "+" + str(moved) + " live", Color("#9fe4dd"))
@@ -385,7 +389,7 @@ func _upgrade_net() -> void:
 	money -= cost
 	net_level += 1
 	upgrades_bought_total += 1
-	status_text = "Net upgraded to level " + str(net_level) + "."
+	status_text = "Net upgraded to level " + str(net_level) + "." + _net_unlock_text()
 	_add_popup("Net level " + str(net_level), grid_rect.position + Vector2(grid_rect.size.x * 0.5, 28.0), Color("#f2d16b"))
 	_update_hud()
 
@@ -425,6 +429,7 @@ func _tick_fish_spawns(delta: float) -> void:
 
 			tile["spawn_timer"] -= delta
 			if tile["spawn_timer"] <= 0.0:
+				tile["fish_kind"] = _random_fish_kind()
 				tile["fish"] = randi_range(1, min(3, 1 + net_level))
 				tile["spawn_timer"] = randf_range(3.0, 7.0)
 			tiles[y][x] = tile
@@ -432,7 +437,7 @@ func _tick_fish_spawns(delta: float) -> void:
 
 func _tick_cutters(delta: float) -> void:
 	var cutter_count := _building_count(BuildKind.CUTTER)
-	if cutter_count <= 0 or live_fish <= 0:
+	if cutter_count <= 0 or _live_fish_total() <= 0:
 		cutter_progress = 0.0
 		return
 	if meat >= _meat_capacity():
@@ -442,16 +447,17 @@ func _tick_cutters(delta: float) -> void:
 	var required: float = _cutter_required_time()
 	cutter_progress += delta * _cutter_rate()
 
-	while cutter_progress >= required and live_fish > 0:
-		var produced := 2 + int(cutter_level >= 3)
+	while cutter_progress >= required and _live_fish_total() > 0:
+		var fish_kind := _take_next_live_fish_kind()
+		var produced := _fish_meat_yield(fish_kind) + int(cutter_level >= 3)
 		if meat + produced > _meat_capacity():
+			_add_fish_to_stock(live_fish_stock, fish_kind, 1)
 			status_text = "Meat storage is full. Markets create more storage and sell faster near roads."
 			break
 		cutter_progress -= required
-		live_fish -= 1
 		meat += produced
 		meat_processed_total += produced
-		status_text = "Cutters processed fish into meat."
+		status_text = "Cutters processed " + _fish_name(fish_kind) + " into " + str(produced) + " meat."
 		_add_popup("+" + str(produced) + " meat", _building_center(BuildKind.CUTTER), Color("#ffd7bb"))
 
 
@@ -540,7 +546,7 @@ func _pool_capacity_without(cell_to_exclude: Vector2i) -> int:
 
 
 func _can_remove_pool_at(cell: Vector2i) -> bool:
-	return live_fish <= _pool_capacity_without(cell)
+	return _live_fish_total() <= _pool_capacity_without(cell)
 
 
 func _meat_capacity() -> int:
@@ -589,6 +595,126 @@ func _market_capacity_at(cell: Vector2i) -> int:
 	return capacity
 
 
+func _random_fish_kind() -> int:
+	var roll := randf()
+	if net_level >= 3:
+		if roll < 0.30:
+			return FishKind.MINNOW
+		if roll < 0.75:
+			return FishKind.CARP
+		return FishKind.SILVERFISH
+	if net_level >= 2:
+		if roll < 0.45:
+			return FishKind.MINNOW
+		if roll < 0.85:
+			return FishKind.CARP
+		return FishKind.SILVERFISH
+	if roll < 0.72:
+		return FishKind.MINNOW
+	return FishKind.CARP
+
+
+func _fish_name(fish_kind: int) -> String:
+	match fish_kind:
+		FishKind.MINNOW:
+			return "minnow"
+		FishKind.CARP:
+			return "carp"
+		FishKind.SILVERFISH:
+			return "silverfish"
+		_:
+			return "fish"
+
+
+func _fish_plural(fish_kind: int, count: int) -> String:
+	var name := _fish_name(fish_kind)
+	if count == 1:
+		return name
+	if fish_kind == FishKind.SILVERFISH:
+		return "silverfish"
+	return name + "s"
+
+
+func _fish_color(fish_kind: int) -> Color:
+	match fish_kind:
+		FishKind.MINNOW:
+			return Color("#f2d16b")
+		FishKind.CARP:
+			return Color("#f08b57")
+		FishKind.SILVERFISH:
+			return Color("#c7e8ff")
+		_:
+			return Color("#f2d16b")
+
+
+func _fish_meat_yield(fish_kind: int) -> int:
+	match fish_kind:
+		FishKind.MINNOW:
+			return 1
+		FishKind.CARP:
+			return 2
+		FishKind.SILVERFISH:
+			return 3
+		_:
+			return 1
+
+
+func _stock_total(stock: Array) -> int:
+	var total := 0
+	for amount in stock:
+		total += int(amount)
+	return total
+
+
+func _carried_fish_total() -> int:
+	return _stock_total(carried_fish_stock)
+
+
+func _live_fish_total() -> int:
+	return _stock_total(live_fish_stock)
+
+
+func _add_fish_to_stock(stock: Array, fish_kind: int, count: int) -> void:
+	stock[fish_kind] = int(stock[fish_kind]) + count
+
+
+func _move_fish_between_stocks(from_stock: Array, to_stock: Array, max_count: int) -> int:
+	var moved := 0
+	for fish_kind: int in [FishKind.SILVERFISH, FishKind.CARP, FishKind.MINNOW]:
+		if moved >= max_count:
+			break
+		var available := int(from_stock[fish_kind])
+		if available <= 0:
+			continue
+		var take: int = min(available, max_count - moved)
+		from_stock[fish_kind] = available - take
+		to_stock[fish_kind] = int(to_stock[fish_kind]) + take
+		moved += take
+	return moved
+
+
+func _take_next_live_fish_kind() -> int:
+	for fish_kind: int in [FishKind.SILVERFISH, FishKind.CARP, FishKind.MINNOW]:
+		if int(live_fish_stock[fish_kind]) > 0:
+			live_fish_stock[fish_kind] = int(live_fish_stock[fish_kind]) - 1
+			return fish_kind
+	return FishKind.MINNOW
+
+
+func _stock_summary(stock: Array) -> String:
+	if _stock_total(stock) <= 0:
+		return ""
+
+	var parts: Array = []
+	if int(stock[FishKind.MINNOW]) > 0:
+		parts.append("M" + str(stock[FishKind.MINNOW]))
+	if int(stock[FishKind.CARP]) > 0:
+		parts.append("C" + str(stock[FishKind.CARP]))
+	if int(stock[FishKind.SILVERFISH]) > 0:
+		parts.append("S" + str(stock[FishKind.SILVERFISH]))
+	return "[" + " ".join(parts) + "]"
+
+
 func _format_ratio(value: float) -> String:
 	return "%.1f" % value
 
@@ -627,6 +753,14 @@ func _pool_upgrade_cost() -> int:
 
 func _cutter_upgrade_cost() -> int:
 	return 30 + (cutter_level - 1) * 25
+
+
+func _net_unlock_text() -> String:
+	if net_level == 2:
+		return " Silverfish can now appear in the water."
+	if net_level == 3:
+		return " Better fish now appear more often."
+	return ""
 
 
 func _affordability_color(cost: int) -> Color:
@@ -745,7 +879,11 @@ func _goal_text() -> String:
 		GoalStep.BUILD:
 			return "Goal: Build one extra pool, cutter, or market. " + _progress_text(buildings_built_total, 1)
 		_:
-			return "Phase 1 complete: keep improving the loop or start the next milestone."
+			if net_level < 2:
+				return "Progression: upgrade Net to level 2 to unlock silverfish."
+			if int(fish_caught_by_kind[FishKind.SILVERFISH]) <= 0:
+				return "Progression: catch a silverfish. It yields 3 meat."
+			return "Progression online: fish variety is active. Next milestone adds new buildings."
 
 
 func _progress_text(current: int, target: int) -> String:
@@ -790,11 +928,13 @@ func _update_hud() -> void:
 		return
 
 	var capacity := _pool_capacity()
-	hud_label.text = "Coldwater Catch\n$%d   Carry:%d   Live:%d/%d   Meat:%d/%d\nQueue:%d   Lost:%d   Patience:%ds\nNet %d   Pool %d   Cutter %d" % [
+	hud_label.text = "Coldwater Catch\n$%d   Carry:%d %s   Live:%d/%d %s   Meat:%d/%d\nQueue:%d   Lost:%d   Patience:%ds\nNet %d   Pool %d   Cutter %d" % [
 		money,
-		carried_fish,
-		live_fish,
+		_carried_fish_total(),
+		_stock_summary(carried_fish_stock),
+		_live_fish_total(),
 		capacity,
+		_stock_summary(live_fish_stock),
 		meat,
 		_meat_capacity(),
 		customers_waiting,
@@ -866,7 +1006,7 @@ func _draw_grid() -> void:
 			draw_rect(rect, Color("#0e151b"), false, 2.0)
 
 			if tile["kind"] == TileKind.WATER:
-				_draw_water_tile(rect, int(tile["fish"]))
+				_draw_water_tile(rect, int(tile["fish"]), int(tile["fish_kind"]))
 			elif tile["kind"] == TileKind.ROAD:
 				_draw_road_tile(rect)
 			else:
@@ -880,13 +1020,13 @@ func _draw_grid() -> void:
 				draw_rect(rect.grow(2.0), Color("#f2d16b"), false, 3.0)
 
 
-func _draw_water_tile(rect: Rect2, fish_count: int) -> void:
+func _draw_water_tile(rect: Rect2, fish_count: int, fish_kind: int) -> void:
 	draw_arc(rect.get_center(), tile_px * 0.26, 0.2, PI - 0.2, 16, Color("#9fe4dd"), 2.0)
 	draw_arc(rect.get_center() + Vector2(0, 6), tile_px * 0.22, 0.2, PI - 0.2, 16, Color("#72c5c3"), 2.0)
 
 	for i in fish_count:
 		var offset := Vector2(-tile_px * 0.18 + float(i) * tile_px * 0.18, -tile_px * 0.04 + float(i % 2) * 8.0)
-		_draw_fish(rect.get_center() + offset, tile_px * 0.18)
+		_draw_fish(rect.get_center() + offset, tile_px * 0.18, fish_kind)
 
 
 func _draw_road_tile(rect: Rect2) -> void:
@@ -940,15 +1080,16 @@ func _draw_land_tile(rect: Rect2, building: int) -> void:
 			draw_line(stall.position + Vector2(0, stall.size.y * 0.32), stall.position + Vector2(stall.size.x, stall.size.y * 0.32), Color("#1b1720"), 2.0)
 
 
-func _draw_fish(center: Vector2, scale: float) -> void:
-	draw_circle(center, scale * 0.48, Color("#f2d16b"))
+func _draw_fish(center: Vector2, scale: float, fish_kind: int) -> void:
+	var color := _fish_color(fish_kind)
+	draw_circle(center, scale * 0.48, color)
 	draw_polygon(
 		PackedVector2Array([
 			center + Vector2(scale * 0.38, 0),
 			center + Vector2(scale * 0.82, -scale * 0.36),
 			center + Vector2(scale * 0.82, scale * 0.36)
 		]),
-		PackedColorArray([Color("#f2d16b"), Color("#f2d16b"), Color("#f2d16b")])
+		PackedColorArray([color, color, color])
 	)
 	draw_circle(center + Vector2(-scale * 0.18, -scale * 0.1), scale * 0.08, Color("#17212b"))
 
@@ -995,7 +1136,10 @@ func _selected_tile_text() -> String:
 
 	var tile: Dictionary = tiles[selected_cell.y][selected_cell.x]
 	if tile["kind"] == TileKind.WATER:
-		return "Tile: water with " + str(tile["fish"]) + " fish."
+		if tile["fish"] <= 0:
+			return "Tile: water. Fish will return soon."
+		var fish_kind := int(tile["fish_kind"])
+		return "Tile: water with " + str(tile["fish"]) + " " + _fish_plural(fish_kind, int(tile["fish"])) + ". Yield: " + str(_fish_meat_yield(fish_kind)) + " meat."
 	if tile["kind"] == TileKind.ROAD:
 		return "Tile: road. Markets beside roads sell twice as fast."
 

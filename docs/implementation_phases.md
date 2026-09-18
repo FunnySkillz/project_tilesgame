@@ -28,7 +28,7 @@ Next:
 
 ## Phase 2: Layout Game
 
-Status: in progress.
+Status: playable baseline complete.
 
 Goal: make tile placement matter.
 
@@ -58,7 +58,6 @@ Implemented:
 
 Next:
 
-- add optional building move cost or late-game free relocation
 - tune customer arrival, patience, sale speed, and sale value after playtesting
 - add a first lightweight texture pack once the layout loop feels readable
 
@@ -68,7 +67,7 @@ Use adjacency rules for Phase 2. They are readable on a small phone grid and fas
 
 ## Phase 3: Progression
 
-Status: planned.
+Status: in progress.
 
 Goal: give the player reasons to keep expanding.
 
@@ -79,6 +78,25 @@ Needs:
 - new buildings
 - land expansion
 - first 30-minute goal chain
+
+Next:
+
+- add a simple unlock tree or upgrade panel
+- add new buildings after fish variety creates a real need for them
+- add land expansion
+- turn the current goal line into a fuller first 30-minute goal chain
+
+Implemented:
+
+- minnow, carp, and silverfish as distinct early fish types
+- water tiles now spawn and display a specific fish species
+- carried and live fish are tracked by species
+- compact fish stock summaries in the HUD
+- fish species have different meat yields
+- fish species use different placeholder colors
+- Net level 2 unlocks silverfish spawns
+- Net level 3 improves the better-fish spawn mix
+- post-Phase-1 goal text now points the player toward Net 2 and silverfish
 
 ## Phase 4: Danger
 
