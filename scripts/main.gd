@@ -6,6 +6,7 @@ enum GoalStep { CATCH, STORE, PROCESS, SELL, UPGRADE, BUILD, NET_TWO, SILVERFISH
 enum FishKind { MINNOW, CARP, SILVERFISH }
 enum BuyerKind { VILLAGER, COOK, MERCHANT }
 
+const BoatAgentScript := preload("res://scripts/fishing/BoatAgent.gd")
 const FishAgentScript := preload("res://scripts/fishing/FishAgent.gd")
 
 const GRID_W := 8
@@ -42,7 +43,6 @@ const WORKER_POOL_CAPACITY_BONUS := 2
 const WORKER_CUTTER_RATE_BONUS := 0.35
 const WORKER_SMOKER_RATE_BONUS := 0.35
 const ACTIVE_FISH_MAX := 18
-const BOAT_SPEED := 2.2
 const BOAT_DOCK_X := 2.5
 const NET_CATCH_RADIUS := 0.34
 const SMOKER_SECONDS := 6.0
@@ -101,10 +101,7 @@ var customer_agents: Array = []
 var workers: Array = []
 var selected_worker_index := -1
 var active_fish_agents: Array = []
-var boat_position := Vector2(BOAT_DOCK_X, float(WATER_ROWS) - 0.25)
-var boat_target := Vector2(BOAT_DOCK_X, float(WATER_ROWS) - 0.25)
-var boat_fish_stock: Array = [0, 0, 0]
-var boat_last_direction := Vector2.DOWN
+var boat_agent = BoatAgentScript.new()
 var dragging_boat := false
 
 var grid_rect := Rect2()
@@ -256,10 +253,7 @@ func _set_starter_building(cell: Vector2i, building: int) -> void:
 
 func _init_active_fishing() -> void:
 	active_fish_agents.clear()
-	boat_position = _boat_home_position()
-	boat_target = boat_position
-	boat_last_direction = Vector2.DOWN
-	boat_fish_stock = [0, 0, 0]
+	boat_agent.setup(_boat_home_position())
 	for i in ACTIVE_FISH_MAX:
 		_spawn_active_fish()
 
@@ -361,6 +355,7 @@ func _build_ui() -> void:
 	_add_tool_button(actions, TOOL_MOVE, "Move", "Move one building to another buildable tile.")
 	_add_tool_button(actions, TOOL_REMOVE, "Remove", "Remove a building and recover half its cost.")
 	command_buttons["net"] = _add_command_button(actions, "Net +", "Upgrade net", _upgrade_net)
+	command_buttons["boat"] = _add_command_button(actions, "Boat +", "Upgrade boat speed and hold size", _upgrade_boat)
 	command_buttons["pool"] = _add_command_button(actions, "Pool +", "Upgrade pools", _upgrade_pool)
 	command_buttons["cutter"] = _add_command_button(actions, "Cutter +", "Upgrade cutters", _upgrade_cutter)
 	command_buttons["hire"] = _add_command_button(actions, "Hire +", "Hire another worker", _hire_worker)
@@ -472,7 +467,7 @@ func _try_start_boat_drag(position: Vector2) -> bool:
 	dragging_boat = true
 	_set_boat_target_from_screen(position)
 	status_text = "Boat following your drag. Sweep fish into the net, then tap the dock to unload."
-	_add_popup("Boat target", _world_to_screen(boat_target), Color("#9fe4dd"))
+	_add_popup("Boat target", _world_to_screen(boat_agent.target), Color("#9fe4dd"))
 	_update_hud()
 	queue_redraw()
 	return true
@@ -485,26 +480,26 @@ func _update_boat_drag(position: Vector2) -> void:
 
 func _set_boat_target_from_screen(position: Vector2) -> void:
 	var world_position := (position - grid_rect.position) / tile_px
-	boat_target = Vector2(
+	boat_agent.set_target(Vector2(
 		clamp(world_position.x, 0.25, float(GRID_W) - 0.25),
 		clamp(world_position.y, 0.25, float(WATER_ROWS) - 0.25)
-	)
+	))
 	selected_cell = Vector2i(
-		int(clamp(floor(boat_target.x), 0.0, float(GRID_W - 1))),
-		int(clamp(floor(boat_target.y), 0.0, float(WATER_ROWS - 1)))
+		int(clamp(floor(boat_agent.target.x), 0.0, float(GRID_W - 1))),
+		int(clamp(floor(boat_agent.target.y), 0.0, float(WATER_ROWS - 1)))
 	)
 
 
 func _use_catch_tool(cell: Vector2i) -> void:
 	var tile: Dictionary = tiles[cell.y][cell.x]
 	if tile["kind"] == TileKind.WATER:
-		boat_target = _water_cell_target(cell)
+		boat_agent.set_target(_water_cell_target(cell))
 		status_text = "Boat heading out. Drag on water to guide it, then tap the dock to unload."
 		_add_popup_for_cell(cell, "Boat target", Color("#9fe4dd"))
 		return
 
 	if tile["kind"] == TileKind.DOCK:
-		boat_target = _boat_home_position()
+		boat_agent.set_target(_boat_home_position())
 		if _boat_is_at_dock() and _boat_net_count() > 0:
 			_try_unload_boat()
 		else:
@@ -674,6 +669,19 @@ func _upgrade_net() -> void:
 	_update_hud()
 
 
+func _upgrade_boat() -> void:
+	var cost := _boat_upgrade_cost()
+	if money < cost:
+		status_text = "Need $" + str(cost) + " to upgrade the boat."
+		return
+	money -= cost
+	boat_agent.upgrade()
+	upgrades_bought_total += 1
+	status_text = "Boat upgraded to level " + str(boat_agent.level) + ". Speed and net hold improved."
+	_add_popup("Boat level " + str(boat_agent.level), grid_rect.position + Vector2(grid_rect.size.x * 0.5, 34.0), Color("#9fe4dd"))
+	_update_hud()
+
+
 func _upgrade_pool() -> void:
 	var cost := _pool_upgrade_cost()
 	if money < cost:
@@ -796,7 +804,7 @@ func _tick_active_fishing(delta: float) -> void:
 	var water_min := Vector2(0.15, 0.15)
 	var water_max := Vector2(float(GRID_W) - 0.15, float(WATER_ROWS) - 0.2)
 	for fish in active_fish_agents:
-		fish.tick(delta, water_min, water_max, boat_position)
+		fish.tick(delta, water_min, water_max, boat_agent.position)
 
 	_collect_fish_in_net()
 	while active_fish_agents.size() < ACTIVE_FISH_MAX:
@@ -807,16 +815,7 @@ func _tick_active_fishing(delta: float) -> void:
 
 
 func _move_boat(delta: float) -> void:
-	var delta_to_target := boat_target - boat_position
-	if delta_to_target.length() <= 0.01:
-		return
-
-	var move_distance := BOAT_SPEED * delta
-	if delta_to_target.length() <= move_distance:
-		boat_position = boat_target
-	else:
-		boat_position += delta_to_target.normalized() * move_distance
-	boat_last_direction = delta_to_target.normalized()
+	boat_agent.tick(delta)
 
 
 func _collect_fish_in_net() -> void:
@@ -834,7 +833,7 @@ func _collect_fish_in_net() -> void:
 			continue
 
 		active_fish_agents.remove_at(i)
-		_add_fish_to_stock(boat_fish_stock, fish.fish_kind, 1)
+		_add_fish_to_stock(boat_agent.fish_stock, fish.fish_kind, 1)
 		fish_caught_total += 1
 		_add_fish_to_stock(fish_caught_by_kind, fish.fish_kind, 1)
 		status_text = "Net caught a " + _fish_name(fish.fish_kind) + ". Net " + str(_boat_net_count()) + "/" + str(_boat_net_capacity()) + "." + _maybe_unlock_storage(fish.fish_kind)
@@ -847,7 +846,7 @@ func _try_unload_boat() -> void:
 		status_text = "Boat is docked, but pools are full. Build, staff, or upgrade pools."
 		return
 
-	var moved := _move_fish_between_stocks(boat_fish_stock, live_fish_stock, room)
+	var moved := _move_fish_between_stocks(boat_agent.fish_stock, live_fish_stock, room)
 	if moved <= 0:
 		return
 	fish_stored_total += moved
@@ -863,33 +862,31 @@ func _water_cell_target(cell: Vector2i) -> Vector2:
 
 
 func _boat_is_at_dock() -> bool:
-	return boat_position.distance_to(_boat_home_position()) <= 0.08
+	return boat_agent.is_at(_boat_home_position())
 
 
 func _boat_direction() -> Vector2:
-	if boat_last_direction.length() <= 0.001:
-		return Vector2.DOWN
-	return boat_last_direction.normalized()
+	return boat_agent.direction()
 
 
 func _boat_net_center() -> Vector2:
-	return boat_position - _boat_direction() * _boat_net_length()
+	return boat_agent.net_center(net_level)
 
 
 func _boat_net_length() -> float:
-	return 0.45 + float(net_level) * 0.16
+	return boat_agent.net_length(net_level)
 
 
 func _boat_net_radius() -> float:
-	return 0.28 + float(net_level) * 0.08
+	return boat_agent.net_radius(net_level)
 
 
 func _boat_net_capacity() -> int:
-	return 4 + net_level * 3
+	return boat_agent.net_capacity(net_level)
 
 
 func _boat_net_count() -> int:
-	return _stock_total(boat_fish_stock)
+	return boat_agent.net_count()
 
 
 func _tick_cutters(delta: float) -> void:
@@ -1948,6 +1945,10 @@ func _net_upgrade_cost() -> int:
 	return 20 + (net_level - 1) * 15
 
 
+func _boat_upgrade_cost() -> int:
+	return 28 + (boat_agent.level - 1) * 22
+
+
 func _pool_upgrade_cost() -> int:
 	return 25 + (pool_level - 1) * 20
 
@@ -2232,7 +2233,7 @@ func _update_hud() -> void:
 	var smoked_text := ""
 	if _is_smoker_unlocked() or smoked_meat > 0:
 		smoked_text = "   Smoke:%d/%d" % [smoked_meat, _smoked_meat_capacity()]
-	hud_label.text = "Coldwater Catch\n$%d   Carry:%d %s   Boat:%d/%d   Live:%d/%d %s   Meat:%d/%d%s\nBuyers:%d/%d   Queue:%d   Lost:%d   Patience:%ds   Crew:%d/%d\nNet %d   Pool %d   Cutter %d   Land:%d" % [
+	hud_label.text = "Coldwater Catch\n$%d   Carry:%d %s   Boat:%d/%d   Live:%d/%d %s   Meat:%d/%d%s\nBuyers:%d/%d   Queue:%d   Lost:%d   Patience:%ds   Crew:%d/%d\nNet %d   Boat %d   Pool %d   Cutter %d   Land:%d" % [
 		money,
 		_carried_fish_total(),
 		_stock_summary(carried_fish_stock),
@@ -2252,6 +2253,7 @@ func _update_hud() -> void:
 		workers.size(),
 		MAX_WORKERS,
 		net_level,
+		boat_agent.level,
 		pool_level,
 		cutter_level,
 		land_expanded_total
@@ -2275,6 +2277,10 @@ func _update_tool_buttons() -> void:
 		var net_button: Button = command_buttons["net"]
 		net_button.text = "Net $" + str(_net_upgrade_cost())
 		net_button.modulate = _affordability_color(_net_upgrade_cost())
+	if command_buttons.has("boat"):
+		var boat_button: Button = command_buttons["boat"]
+		boat_button.text = "Boat $" + str(_boat_upgrade_cost())
+		boat_button.modulate = _affordability_color(_boat_upgrade_cost())
 	if command_buttons.has("pool"):
 		var pool_button: Button = command_buttons["pool"]
 		pool_button.text = "Pool $" + str(_pool_upgrade_cost())
@@ -2426,7 +2432,7 @@ func _draw_active_fishing() -> void:
 		var fish_agent = fish
 		_draw_fish(_world_to_screen(fish_agent.position), tile_px * 0.13, fish_agent.fish_kind)
 
-	var boat_screen := _world_to_screen(boat_position)
+	var boat_screen := _world_to_screen(boat_agent.position)
 	var net_center := _boat_net_center()
 	var net_screen := _world_to_screen(net_center)
 	var net_radius: float = _boat_net_radius() * tile_px
@@ -2436,7 +2442,7 @@ func _draw_active_fishing() -> void:
 
 	var caught_index := 0
 	for fish_kind: int in [FishKind.MINNOW, FishKind.CARP, FishKind.SILVERFISH]:
-		for i in int(boat_fish_stock[fish_kind]):
+		for i in int(boat_agent.fish_stock[fish_kind]):
 			var angle := float(caught_index) * 1.7
 			var offset: Vector2 = Vector2(cos(angle), sin(angle)) * min(net_radius * 0.55, 5.0 + float(caught_index % 4) * 3.0)
 			_draw_fish(net_screen + offset, tile_px * 0.09, fish_kind)
@@ -2459,6 +2465,10 @@ func _draw_boat(center: Vector2) -> void:
 		PackedColorArray([Color("#7a4f3b"), Color("#6a422f"), Color("#4d3025"), Color("#6a422f")])
 	)
 	draw_polyline(PackedVector2Array([bow, right_point, stern, left, bow]), Color("#f0d597"), 2.0)
+	if boat_agent.level >= 2:
+		draw_line(center - right * tile_px * 0.13, center + right * tile_px * 0.13, Color("#9fe4dd"), 2.0)
+	if boat_agent.level >= 3:
+		draw_circle(center - direction * tile_px * 0.11, tile_px * 0.045, Color("#f2d16b"))
 
 
 func _draw_dock_order_board() -> void:

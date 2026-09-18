@@ -75,6 +75,7 @@ Upgrades should change how the game feels, not only increase numbers.
 Examples:
 
 - better net catches multiple fish
+- better boat moves faster and holds more fish before docking
 - reinforced pool can hold aggressive fish
 - larger cutter can process bigger fish
 - freezer prevents spoilage
@@ -277,13 +278,14 @@ Current direction:
 - returning to the dock unloads live fish into pools
 - net upgrades should visibly increase net capacity and net size
 - minnows, carp, and silverfish have different movement personalities
+- boat upgrades improve speed and net hold capacity, with small visual details on the boat
 
 Later active-fishing depth:
 
 - smoother steering and possible drawn path feedback
 - deeper species behavior such as minnow schools, lure/bait reactions, and predator avoidance
 - fishing zones such as shallow, cold, deep, and monster water
-- boat upgrades for speed, lights, net strength, storage, sonar, and armor
+- boat upgrades for lights, net strength, storage, sonar, and armor
 
 ### Buyers And Selling
 
@@ -484,6 +486,7 @@ Needs:
 - dock unloading
 - net size upgrades
 - fish behavior differences
+- boat speed and hold upgrades
 - fishing zones
 
 ### Milestone 5: Danger

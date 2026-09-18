@@ -30,7 +30,7 @@ The first playable version focuses only on the loop:
 - storage increases processed-goods capacity
 - edge expansion adds buildable land
 - smokers turn meat into higher-value smoked meat
-- upgrades improve net, pools, and cutters
+- upgrades improve net, boat speed/hold, pools, and cutters
 
 Later systems should layer onto the same grid:
 

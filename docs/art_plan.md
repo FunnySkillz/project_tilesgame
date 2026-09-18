@@ -84,7 +84,7 @@ Do this before final danger polish because fishing is now a signature interactio
 - dock-unload feedback
 - shallow/cold/deep water tile variants once fishing zones exist
 
-### Phase 5: Automation And Trucks
+### Phase 6: Automation And Trucks
 
 Generate logistics assets.
 
@@ -97,7 +97,7 @@ Needed assets:
 - bulk order UI icons
 - advanced machine variants
 
-### Phase 6: Mobile Release Polish
+### Phase 7: Mobile Release Polish
 
 Replace or refine rough assets.
 
@@ -127,6 +127,8 @@ Avoid tiny detail. Every asset must read at phone size.
 Do not generate final textures yet.
 
 Phase 2 layout mechanics are readable enough to support a first texture pass, and Phase 3 now has fish species, Storage, land expansion, and the Smoker branch. Phase 4 added workers, visible buyers, and dock orders. Phase 4.5 now has active boat fishing, so the first cohesive pack should include the boat, net, fish readability, workers, buyers, and market-life props instead of only tiles and machines.
+
+The boat upgrade path currently uses procedural details only. Keep it that way until fishing zones prove what boat silhouettes and net states must communicate at phone size.
 
 Next art milestone:
 

@@ -186,7 +186,7 @@ Next:
 
 ## Phase 4.5: Active Fishing
 
-Status: active-control slice complete.
+Status: architecture and boat-upgrade slice complete.
 
 Goal: make catching fish as satisfying and readable as processing and selling them.
 
@@ -202,9 +202,9 @@ Needs:
 - [x] net upgrades that visibly increase capacity/size
 - [x] drag boat steering
 - [x] fish species-specific movement personalities
+- [x] boat upgrades beyond net level
+- [x] split more fishing code out of `main.gd`
 - [ ] fishing zones such as shallow, cold, deep, and monster water
-- [ ] boat upgrades beyond net level
-- [ ] split more fishing code out of `main.gd`
 
 Implemented:
 
@@ -218,13 +218,14 @@ Implemented:
 - tapping the dock returns the boat; docked boat unloads live fish into pools when there is capacity
 - net level now increases active net capacity and visible net size
 - minnows wiggle, carp cruise, and silverfish dart away from the boat
+- `scripts/fishing/BoatAgent.gd` now owns boat movement, target, direction, stock, level, speed, and net capacity math
+- Boat upgrades now cost money, count as upgrades, improve movement speed, improve net hold capacity, and add small visual boat details
 - catch and store goals work through active fishing because net catches count as caught fish and dock unloading counts as stored fish
 
 Next:
 
-- add a small active-fishing architecture pass before expanding this system much further
 - add shallow, cold, deep, and monster water zones so fishing routes matter
-- add boat upgrades beyond net level, starting with speed and hold size
+- make fishing zones affect fish mix, movement pressure, and later danger
 - keep graphics procedural until net shape, boat scale, and fish readability feel good
 
 ## Phase 5: Danger

@@ -32,6 +32,7 @@ The current prototype is intentionally small:
 - minnows wiggle, carp cruise, and silverfish dart away from the boat
 - fish species use different colors and produce different meat yields
 - Net level 2 unlocks silverfish and increases the visible boat net capacity/size
+- Boat upgrades improve travel speed, increase the net hold, and add small visual details
 - catching silverfish unlocks Storage, which increases meat capacity
 - building Storage unlocks Expand, which buys edge ground into buildable land
 - steady sales unlock the Smoker, which turns meat into higher-value smoked meat
