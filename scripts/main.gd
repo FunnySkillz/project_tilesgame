@@ -1,8 +1,8 @@
 extends Control
 
 enum TileKind { WATER, LAND, ROAD, EXPANSION }
-enum BuildKind { NONE, POOL, CUTTER, MARKET, STORAGE }
-enum GoalStep { CATCH, STORE, PROCESS, SELL, UPGRADE, BUILD, NET_TWO, SILVERFISH, STORAGE, EXPAND, STABLE_SALES, COMPLETE }
+enum BuildKind { NONE, POOL, CUTTER, MARKET, STORAGE, SMOKER }
+enum GoalStep { CATCH, STORE, PROCESS, SELL, UPGRADE, BUILD, NET_TWO, SILVERFISH, STORAGE, EXPAND, STABLE_SALES, SMOKER, SMOKED_SALE, COMPLETE }
 enum FishKind { MINNOW, CARP, SILVERFISH }
 
 const GRID_W := 8
@@ -15,6 +15,7 @@ const TOOL_POOL := "pool"
 const TOOL_CUTTER := "cutter"
 const TOOL_MARKET := "market"
 const TOOL_STORAGE := "storage"
+const TOOL_SMOKER := "smoker"
 const TOOL_EXPAND := "expand"
 const TOOL_MOVE := "move"
 const TOOL_REMOVE := "remove"
@@ -23,10 +24,16 @@ const COST_POOL := 10
 const COST_CUTTER := 15
 const COST_MARKET := 20
 const COST_STORAGE := 25
+const COST_SMOKER := 45
 const COST_EXPAND := 35
 
 const CUSTOMER_PATIENCE_SECONDS := 10.0
 const MARKET_SELL_SECONDS := 1.25
+const SMOKER_SECONDS := 6.0
+const MEAT_PRICE := 6
+const SMOKED_MEAT_PRICE := 14
+const SMOKER_INPUT_MEAT := 2
+const SMOKER_OUTPUT_SMOKED := 1
 
 var tiles: Array = []
 var selected_tool := TOOL_CATCH
@@ -34,6 +41,7 @@ var money := 30
 var carried_fish_stock: Array = [0, 0, 0]
 var live_fish_stock: Array = [0, 0, 0]
 var meat := 0
+var smoked_meat := 0
 var net_level := 1
 var pool_level := 1
 var cutter_level := 1
@@ -43,6 +51,7 @@ var customer_timer := 4.0
 var customer_patience_timer := CUSTOMER_PATIENCE_SECONDS
 var market_sell_timer := MARKET_SELL_SECONDS
 var cutter_progress := 0.0
+var smoker_progress := 0.0
 var status_text := "Tap water to catch fish. The starter fishery can already process and sell."
 var goal_step := GoalStep.CATCH
 var fish_caught_total := 0
@@ -50,6 +59,7 @@ var fish_caught_by_kind: Array = [0, 0, 0]
 var fish_stored_total := 0
 var meat_processed_total := 0
 var meat_sold_total := 0
+var smoked_meat_sold_total := 0
 var upgrades_bought_total := 0
 var buildings_built_total := 0
 var storage_unlocked := false
@@ -82,6 +92,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_tick_fish_spawns(delta)
 	_tick_cutters(delta)
+	_tick_smokers(delta)
 	_tick_customers(delta)
 	_tick_feedback_popups(delta)
 	_check_goal_progress()
@@ -210,6 +221,7 @@ func _build_ui() -> void:
 	_add_tool_button(actions, TOOL_CUTTER, "Cutter $15", "Build processing on land.")
 	_add_tool_button(actions, TOOL_MARKET, "Market $20", "Build selling on land.")
 	_add_tool_button(actions, TOOL_STORAGE, "Storage", "Unlock by catching silverfish. Adds meat storage capacity.")
+	_add_tool_button(actions, TOOL_SMOKER, "Smoker", "Unlock after steady sales. Turns meat into higher-value smoked meat.")
 	_add_tool_button(actions, TOOL_EXPAND, "Expand", "Unlock after building Storage. Converts edge ground into buildable land.")
 	_add_tool_button(actions, TOOL_MOVE, "Move", "Move one building to another land tile.")
 	_add_tool_button(actions, TOOL_REMOVE, "Remove", "Remove a building and recover half its cost.")
@@ -286,6 +298,8 @@ func _try_handle_tap(position: Vector2) -> void:
 			_try_build(cell, BuildKind.MARKET, COST_MARKET, "market")
 		TOOL_STORAGE:
 			_try_build(cell, BuildKind.STORAGE, COST_STORAGE, "storage")
+		TOOL_SMOKER:
+			_try_build(cell, BuildKind.SMOKER, COST_SMOKER, "smoker")
 		TOOL_EXPAND:
 			_try_expand_land(cell)
 		TOOL_MOVE:
@@ -389,7 +403,10 @@ func _use_move_tool(cell: Vector2i) -> void:
 			status_text = "Cannot move this pool while it is needed for live fish capacity."
 			return
 		if tile["building"] == BuildKind.STORAGE and not _can_remove_storage_at(cell):
-			status_text = "Cannot move this storage while it is needed for meat capacity."
+			status_text = "Cannot move this storage while it is needed for meat or smoked meat capacity."
+			return
+		if tile["building"] == BuildKind.SMOKER and not _can_remove_smoker_at(cell):
+			status_text = "Cannot move this smoker while it is needed for smoked meat capacity."
 			return
 
 		moving_building = int(tile["building"])
@@ -425,7 +442,10 @@ func _use_remove_tool(cell: Vector2i) -> void:
 		status_text = "Cannot remove this pool while it is needed for live fish capacity."
 		return
 	if building == BuildKind.STORAGE and not _can_remove_storage_at(cell):
-		status_text = "Cannot remove this storage while it is needed for meat capacity."
+		status_text = "Cannot remove this storage while it is needed for meat or smoked meat capacity."
+		return
+	if building == BuildKind.SMOKER and not _can_remove_smoker_at(cell):
+		status_text = "Cannot remove this smoker while it is needed for smoked meat capacity."
 		return
 
 	var refund := int(floor(float(_building_cost(building)) * 0.5))
@@ -516,6 +536,31 @@ func _tick_cutters(delta: float) -> void:
 		_add_popup("+" + str(produced) + " meat", _building_center(BuildKind.CUTTER), Color("#ffd7bb"))
 
 
+func _tick_smokers(delta: float) -> void:
+	var smoker_count := _building_count(BuildKind.SMOKER)
+	if smoker_count <= 0:
+		smoker_progress = 0.0
+		return
+	if meat < SMOKER_INPUT_MEAT:
+		return
+	if smoked_meat >= _smoked_meat_capacity():
+		status_text = "Smoked meat storage is full. Storage or smokers create more smoked goods room."
+		return
+
+	var required: float = _smoker_required_time()
+	smoker_progress += delta * _smoker_rate()
+
+	while smoker_progress >= required and meat >= SMOKER_INPUT_MEAT:
+		if smoked_meat + SMOKER_OUTPUT_SMOKED > _smoked_meat_capacity():
+			status_text = "Smoked meat storage is full. Storage or smokers create more smoked goods room."
+			break
+		smoker_progress -= required
+		meat -= SMOKER_INPUT_MEAT
+		smoked_meat += SMOKER_OUTPUT_SMOKED
+		status_text = "Smoker turned " + str(SMOKER_INPUT_MEAT) + " meat into smoked meat."
+		_add_popup("+" + str(SMOKER_OUTPUT_SMOKED) + " smoked", _building_center(BuildKind.SMOKER), Color("#e8a35c"))
+
+
 func _tick_customers(delta: float) -> void:
 	customer_timer -= delta
 	if customer_timer <= 0.0:
@@ -532,16 +577,31 @@ func _tick_customers(delta: float) -> void:
 	market_sell_timer = MARKET_SELL_SECONDS
 
 	var sales_capacity := _market_sales_capacity()
-	if sales_capacity <= 0 or customers_waiting <= 0 or meat <= 0:
+	if sales_capacity <= 0 or customers_waiting <= 0 or (meat <= 0 and smoked_meat <= 0):
 		return
 
-	var sold: int = min(meat, sales_capacity, customers_waiting)
-	meat -= sold
-	customers_waiting -= sold
-	money += sold * 6
-	meat_sold_total += sold
-	status_text = "Sold " + str(sold) + " meat for $" + str(sold * 6) + "."
-	_add_popup("+$" + str(sold * 6), _building_center(BuildKind.MARKET), Color("#b7ef8a"))
+	var sold_smoked: int = min(smoked_meat, sales_capacity, customers_waiting)
+	var remaining_capacity: int = sales_capacity - sold_smoked
+	var remaining_customers: int = customers_waiting - sold_smoked
+	var sold_meat: int = min(meat, remaining_capacity, remaining_customers)
+	var earned := sold_smoked * SMOKED_MEAT_PRICE + sold_meat * MEAT_PRICE
+	if earned <= 0:
+		return
+
+	smoked_meat -= sold_smoked
+	meat -= sold_meat
+	customers_waiting -= sold_smoked + sold_meat
+	money += earned
+	meat_sold_total += sold_meat
+	smoked_meat_sold_total += sold_smoked
+
+	var sold_parts: Array = []
+	if sold_smoked > 0:
+		sold_parts.append(str(sold_smoked) + " smoked meat")
+	if sold_meat > 0:
+		sold_parts.append(str(sold_meat) + " meat")
+	status_text = "Sold " + " and ".join(sold_parts) + " for $" + str(earned) + "."
+	_add_popup("+$" + str(earned), _building_center(BuildKind.MARKET), Color("#b7ef8a"))
 	customer_patience_timer = CUSTOMER_PATIENCE_SECONDS
 
 
@@ -628,13 +688,54 @@ func _meat_capacity_without(cell_to_exclude: Vector2i) -> int:
 
 
 func _can_remove_storage_at(cell: Vector2i) -> bool:
-	return meat <= _meat_capacity_without(cell)
+	return meat <= _meat_capacity_without(cell) and smoked_meat <= _smoked_meat_capacity_without(cell)
 
 
 func _storage_capacity_at(cell: Vector2i) -> int:
 	var capacity := 14
 	if _has_adjacent_building(cell, BuildKind.MARKET):
 		capacity += 6
+	return capacity
+
+
+func _smoked_meat_capacity() -> int:
+	var capacity := 8
+	capacity += _building_count(BuildKind.STORAGE) * 4
+	for y in GRID_H:
+		for x in GRID_W:
+			var tile: Dictionary = tiles[y][x]
+			if tile["building"] == BuildKind.SMOKER:
+				capacity += _smoker_capacity_at(Vector2i(x, y))
+	return capacity
+
+
+func _smoked_meat_capacity_without(cell_to_exclude: Vector2i) -> int:
+	var capacity := 8
+	for y in GRID_H:
+		for x in GRID_W:
+			var cell := Vector2i(x, y)
+			if cell == cell_to_exclude:
+				continue
+			var tile: Dictionary = tiles[y][x]
+			if tile["building"] == BuildKind.STORAGE:
+				capacity += 4
+			elif tile["building"] == BuildKind.SMOKER:
+				capacity += _smoker_capacity_at_with_exclusion(cell, cell_to_exclude)
+	return capacity
+
+
+func _can_remove_smoker_at(cell: Vector2i) -> bool:
+	return smoked_meat <= _smoked_meat_capacity_without(cell)
+
+
+func _smoker_capacity_at(cell: Vector2i) -> int:
+	return _smoker_capacity_at_with_exclusion(cell, Vector2i(-1, -1))
+
+
+func _smoker_capacity_at_with_exclusion(cell: Vector2i, excluded_cell: Vector2i) -> int:
+	var capacity := 4
+	if _has_adjacent_building_except(cell, BuildKind.STORAGE, excluded_cell):
+		capacity += 2
 	return capacity
 
 
@@ -658,6 +759,31 @@ func _cutter_rate_at(cell: Vector2i) -> float:
 	var rate := 1.0
 	if _has_adjacent_building(cell, BuildKind.POOL):
 		rate += 0.5
+	return rate
+
+
+func _smoker_required_time() -> float:
+	return SMOKER_SECONDS
+
+
+func _smoker_rate() -> float:
+	var rate := 0.0
+	for y in GRID_H:
+		for x in GRID_W:
+			var cell := Vector2i(x, y)
+			var tile: Dictionary = tiles[y][x]
+			if tile["building"] != BuildKind.SMOKER:
+				continue
+			rate += _smoker_rate_at(cell)
+	return rate
+
+
+func _smoker_rate_at(cell: Vector2i) -> float:
+	var rate := 1.0
+	if _has_adjacent_building(cell, BuildKind.CUTTER):
+		rate += 0.45
+	if _has_adjacent_building(cell, BuildKind.STORAGE):
+		rate += 0.25
 	return rate
 
 
@@ -814,6 +940,8 @@ func _building_cost(building: int) -> int:
 			return COST_MARKET
 		BuildKind.STORAGE:
 			return COST_STORAGE
+		BuildKind.SMOKER:
+			return COST_SMOKER
 		_:
 			return 0
 
@@ -828,6 +956,8 @@ func _tool_cost(tool: String) -> int:
 			return COST_MARKET
 		TOOL_STORAGE:
 			return COST_STORAGE
+		TOOL_SMOKER:
+			return COST_SMOKER
 		TOOL_EXPAND:
 			return COST_EXPAND
 		_:
@@ -846,6 +976,8 @@ func _tool_label(tool: String) -> String:
 			return "Market $" + str(COST_MARKET)
 		TOOL_STORAGE:
 			return "Storage $" + str(COST_STORAGE) if _is_tool_unlocked(tool) else "Storage L"
+		TOOL_SMOKER:
+			return "Smoker $" + str(COST_SMOKER) if _is_tool_unlocked(tool) else "Smoker L"
 		TOOL_EXPAND:
 			return "Expand $" + str(COST_EXPAND) if _is_tool_unlocked(tool) else "Expand L"
 		TOOL_MOVE:
@@ -859,6 +991,8 @@ func _tool_label(tool: String) -> String:
 func _is_tool_unlocked(tool: String) -> bool:
 	if tool == TOOL_STORAGE:
 		return _is_storage_unlocked()
+	if tool == TOOL_SMOKER:
+		return _is_smoker_unlocked()
 	if tool == TOOL_EXPAND:
 		return _is_land_expansion_unlocked()
 	return true
@@ -867,6 +1001,8 @@ func _is_tool_unlocked(tool: String) -> bool:
 func _tool_locked_reason(tool: String) -> String:
 	if tool == TOOL_STORAGE:
 		return "Storage is locked. Catch a silverfish after upgrading the net to level 2."
+	if tool == TOOL_SMOKER:
+		return "Smoker is locked. Expand land and prove steady sales first."
 	if tool == TOOL_EXPAND:
 		return "Expansion is locked. Build Storage first."
 	return "This tool is locked."
@@ -875,12 +1011,16 @@ func _tool_locked_reason(tool: String) -> String:
 func _is_building_unlocked(building: int) -> bool:
 	if building == BuildKind.STORAGE:
 		return _is_storage_unlocked()
+	if building == BuildKind.SMOKER:
+		return _is_smoker_unlocked()
 	return true
 
 
 func _building_locked_reason(building: int) -> String:
 	if building == BuildKind.STORAGE:
 		return "Storage is locked. Catch a silverfish first."
+	if building == BuildKind.SMOKER:
+		return "Smoker is locked. Complete the steady sales goal first."
 	return "This building is locked."
 
 
@@ -890,6 +1030,10 @@ func _is_storage_unlocked() -> bool:
 
 func _is_land_expansion_unlocked() -> bool:
 	return _building_count(BuildKind.STORAGE) > 0
+
+
+func _is_smoker_unlocked() -> bool:
+	return goal_step >= GoalStep.SMOKER
 
 
 func _maybe_unlock_storage(fish_kind: int) -> String:
@@ -937,6 +1081,8 @@ func _building_name(building: int) -> String:
 			return "market"
 		BuildKind.STORAGE:
 			return "storage"
+		BuildKind.SMOKER:
+			return "smoker"
 		_:
 			return "building"
 
@@ -959,6 +1105,14 @@ func _layout_hint_for_building(cell: Vector2i, building: int) -> String:
 			if _has_adjacent_building(cell, BuildKind.MARKET):
 				return "Adjacent market gives this storage +6 meat capacity."
 			return "Storage gets +6 capacity beside markets."
+		BuildKind.SMOKER:
+			if _has_adjacent_building(cell, BuildKind.CUTTER) and _has_adjacent_building(cell, BuildKind.STORAGE):
+				return "Cutter and storage adjacency make this smoker faster and roomier."
+			if _has_adjacent_building(cell, BuildKind.CUTTER):
+				return "Adjacent cutter gives this smoker +45% work rate."
+			if _has_adjacent_building(cell, BuildKind.STORAGE):
+				return "Adjacent storage gives this smoker +25% work rate and +2 smoked capacity."
+			return "Smokers work faster beside cutters and storage."
 		_:
 			return ""
 
@@ -982,6 +1136,16 @@ func _has_adjacent_tile_kind(cell: Vector2i, kind: int) -> bool:
 
 func _has_adjacent_building(cell: Vector2i, building: int) -> bool:
 	for next in _adjacent_cells(cell):
+		var tile: Dictionary = tiles[next.y][next.x]
+		if tile["building"] == building:
+			return true
+	return false
+
+
+func _has_adjacent_building_except(cell: Vector2i, building: int, excluded_cell: Vector2i) -> bool:
+	for next in _adjacent_cells(cell):
+		if next == excluded_cell:
+			continue
 		var tile: Dictionary = tiles[next.y][next.x]
 		if tile["building"] == building:
 			return true
@@ -1034,6 +1198,12 @@ func _check_goal_progress() -> void:
 		GoalStep.STABLE_SALES:
 			if meat_sold_total >= 14:
 				_complete_goal("Steady sales proven. The early fishery is established.", 20)
+		GoalStep.SMOKER:
+			if _building_count(BuildKind.SMOKER) >= 1:
+				_complete_goal("Smoker built. The fishery can make premium goods.", 16)
+		GoalStep.SMOKED_SALE:
+			if smoked_meat_sold_total >= 2:
+				_complete_goal("Smoked meat sells well. The first progression branch is complete.", 20)
 
 
 func _complete_goal(message: String, reward: int) -> void:
@@ -1067,8 +1237,12 @@ func _goal_text() -> String:
 			return "Goal: Expand 1 edge tile into land. " + _progress_text(land_expanded_total, 1)
 		GoalStep.STABLE_SALES:
 			return "Goal: Sell 14 total meat to prove steady demand. " + _progress_text(meat_sold_total, 14)
+		GoalStep.SMOKER:
+			return "Goal: Build 1 Smoker for premium goods. " + _progress_text(_building_count(BuildKind.SMOKER), 1)
+		GoalStep.SMOKED_SALE:
+			return "Goal: Sell 2 smoked meat. " + _progress_text(smoked_meat_sold_total, 2)
 		_:
-			return "First 30-minute chain complete. Next milestone can add a broader unlock tree."
+			return "Progression branch complete. Next milestone: cold and danger."
 
 
 func _unlock_text() -> String:
@@ -1078,7 +1252,11 @@ func _unlock_text() -> String:
 		return "Unlocks: catch silverfish to unlock Storage."
 	if not _is_land_expansion_unlocked():
 		return "Unlocks: Storage available. Build Storage to unlock land expansion."
-	return "Unlocks: Expand edge tiles into land for $" + str(COST_EXPAND) + "."
+	if not _is_smoker_unlocked():
+		return "Unlocks: Expand land and prove steady sales to unlock Smoker."
+	if _building_count(BuildKind.SMOKER) <= 0:
+		return "Unlocks: Smoker available. Turns 2 meat into smoked meat worth $" + str(SMOKED_MEAT_PRICE) + "."
+	return "Unlocks: Smoker branch active. Next phase adds cold and danger."
 
 
 func _progress_text(current: int, target: int) -> String:
@@ -1123,7 +1301,10 @@ func _update_hud() -> void:
 		return
 
 	var capacity := _pool_capacity()
-	hud_label.text = "Coldwater Catch\n$%d   Carry:%d %s   Live:%d/%d %s   Meat:%d/%d\nQueue:%d   Lost:%d   Patience:%ds   Land:%d\nNet %d   Pool %d   Cutter %d" % [
+	var smoked_text := ""
+	if _is_smoker_unlocked() or smoked_meat > 0:
+		smoked_text = "   Smoke:%d/%d" % [smoked_meat, _smoked_meat_capacity()]
+	hud_label.text = "Coldwater Catch\n$%d   Carry:%d %s   Live:%d/%d %s   Meat:%d/%d%s\nQueue:%d   Lost:%d   Patience:%ds   Land:%d\nNet %d   Pool %d   Cutter %d" % [
 		money,
 		_carried_fish_total(),
 		_stock_summary(carried_fish_stock),
@@ -1132,6 +1313,7 @@ func _update_hud() -> void:
 		_stock_summary(live_fish_stock),
 		meat,
 		_meat_capacity(),
+		smoked_text,
 		customers_waiting,
 		customers_lost,
 		int(ceil(customer_patience_timer)) if customers_waiting > 0 else int(CUSTOMER_PATIENCE_SECONDS),
@@ -1293,6 +1475,15 @@ func _draw_land_tile(rect: Rect2, building: int) -> void:
 			draw_rect(crate, Color("#f0d597"), false, 2.0)
 			draw_line(crate.position + Vector2(0, crate.size.y * 0.35), crate.position + Vector2(crate.size.x, crate.size.y * 0.35), Color("#473722"), 2.0)
 			draw_line(crate.position + Vector2(crate.size.x * 0.5, 0), crate.position + Vector2(crate.size.x * 0.5, crate.size.y), Color("#473722"), 2.0)
+		BuildKind.SMOKER:
+			var smoker := rect.grow(-tile_px * 0.16)
+			draw_rect(smoker, Color("#4b433b"))
+			draw_rect(smoker, Color("#e8a35c"), false, 2.0)
+			draw_rect(Rect2(smoker.position + Vector2(smoker.size.x * 0.58, 4), Vector2(smoker.size.x * 0.2, smoker.size.y * 0.34)), Color("#2c2722"))
+			draw_circle(smoker.position + Vector2(smoker.size.x * 0.68, -1), 3.0, Color("#c8d0d5"))
+			draw_circle(smoker.position + Vector2(smoker.size.x * 0.78, -7), 2.0, Color("#dbe2e6"))
+			var smoke_bar_width: float = smoker.size.x * clamp(smoker_progress / _smoker_required_time(), 0.0, 1.0)
+			draw_rect(Rect2(smoker.position + Vector2(0, smoker.size.y - 5), Vector2(smoke_bar_width, 5)), Color("#e8a35c"))
 
 
 func _draw_fish(center: Vector2, scale: float, fish_kind: int) -> void:
@@ -1372,9 +1563,16 @@ func _selected_tile_text() -> String:
 		BuildKind.MARKET:
 			return "Tile: market. Sales " + str(_market_capacity_at(selected_cell)) + "/tick; road access doubles it."
 		BuildKind.STORAGE:
-			return "Tile: storage. Adds " + str(_storage_capacity_at(selected_cell)) + " meat capacity; better beside markets."
+			return "Tile: storage. Adds " + str(_storage_capacity_at(selected_cell)) + " meat capacity and smoked goods room; better beside markets."
+		BuildKind.SMOKER:
+			return "Tile: smoker. Rate x" + _format_ratio(_smoker_rate_at(selected_cell)) + "; capacity +" + str(_smoker_capacity_at(selected_cell)) + "; wants cutters and storage nearby."
 		_:
-			return "Tile: open land. Build pool, cutter, market" + (", or storage" if _is_storage_unlocked() else "") + " here."
+			var options := "pool, cutter, market"
+			if _is_storage_unlocked():
+				options += ", storage"
+			if _is_smoker_unlocked():
+				options += ", smoker"
+			return "Tile: open land. Build " + options + " here."
 
 
 func _building_label(building: int) -> String:
@@ -1387,5 +1585,7 @@ func _building_label(building: int) -> String:
 			return "SELL"
 		BuildKind.STORAGE:
 			return "STO"
+		BuildKind.SMOKER:
+			return "SMK"
 		_:
 			return ""

@@ -79,25 +79,24 @@ Use adjacency rules for Phase 2. They are readable on a small phone grid and fas
 
 ## Phase 3: Progression
 
-Status: in progress.
+Status: playable baseline complete.
 
 Goal: give the player reasons to keep expanding.
 
 Needs:
 
 - [x] first unlock panel and gated unlock
-- [ ] broader unlock tree
+- [x] broader unlock tree
 - [x] multiple fish types
 - [x] first new building
-- [ ] more buildings
+- [x] more buildings
 - [x] first land expansion mechanic
 - [x] first 30-minute goal chain
 
 Next:
 
-- broaden the unlock tree after land expansion gives it more branches
-- consider another building only after the goal chain reveals a clear pressure point
-- tune the first 30-minute chain after playtesting for pacing and reward values
+- tune the first progression branch after playtesting for pacing and reward values
+- begin Phase 4 with a soft cold-pressure system before adding monster attacks
 
 Implemented:
 
@@ -121,6 +120,12 @@ Implemented:
 - goal and unlock text now guide the player through Storage into land expansion
 - goal chain now continues through Net 2, silverfish, Storage, land expansion, and steady sales
 - goal rewards continue through the first progression arc
+- Smoker unlocks after land expansion and steady sales
+- Smoker turns 2 meat into 1 smoked meat over time
+- smoked meat sells before raw meat for a higher price
+- smokers gain speed from adjacent cutters and storage
+- storage and smoker movement/removal respect smoked meat capacity
+- HUD, inspector, labels, and goal text support the smoked meat branch
 
 ## Phase 4: Danger
 
@@ -135,6 +140,13 @@ Needs:
 - fences, traps, and weapons
 - repair mechanic
 - rare monster resources
+
+Next:
+
+- add a visible cold meter or cold-wave timer
+- make cold temporarily slow cutters and smokers
+- unlock the first heater as the clear counterplay
+- keep cold pressure soft and reversible before monster attacks arrive
 
 ## Phase 5: Automation And Trucks
 

@@ -19,6 +19,9 @@ The first playable version focuses only on the loop:
 - pools increase live fish capacity
 - cutters turn live fish into meat
 - markets sell meat to waiting customers
+- storage increases processed-goods capacity
+- edge expansion adds buildable land
+- smokers turn meat into higher-value smoked meat
 - upgrades improve net, pools, and cutters
 
 Later systems should layer onto the same grid:
@@ -26,6 +29,6 @@ Later systems should layer onto the same grid:
 - cold and heaters
 - monsters and defenses
 - larger fish and stronger machines
-- storage, spoilage, and freezers
+- spoilage and freezers
 - roads, trucks, and bulk orders
 - extra resources such as wood, scrap, fuel, oil, bones, and monster parts
