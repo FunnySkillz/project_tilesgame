@@ -20,6 +20,8 @@ The first playable version focuses only on the loop:
 - cutters turn live fish into meat
 - markets sell meat to waiting buyers
 - buyers walk to markets, wait, buy, and leave
+- villagers, cooks, and merchants ask for different goods
+- visible buyer wants make meat, smoked meat, and bulk selling distinct
 - workers can be hired, moved, and assigned to jobs
 - storage increases processed-goods capacity
 - edge expansion adds buildable land

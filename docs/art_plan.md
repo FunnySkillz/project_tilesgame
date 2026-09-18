@@ -27,7 +27,7 @@ Generate or draw a first small texture set after the Phase 2 mechanics are playa
 - cutter building
 - market building
 - simple fish icon
-- money, meat, and customer icons
+- money, meat, and buyer icons
 
 The goal is readability, not final polish.
 
@@ -40,7 +40,7 @@ Needed assets:
 - 3-5 fish types
 - upgraded building variants
 - storage, freezer, net, and dock buildings
-- simple customer figures
+- simple buyer figures
 - resource icons for oil, bones, scales, fuel, and scrap
 
 This is the right point to create a cohesive style sheet because the unlock tree will define what the player sees repeatedly.

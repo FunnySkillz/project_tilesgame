@@ -18,6 +18,8 @@ The current prototype is intentionally small:
 - use Move and Remove to improve your tile layout
 - pools work better beside water, cutters work better beside pools, markets work better beside roads
 - buyers now walk to markets as visible people, wait, buy, and leave
+- villagers, cooks, and merchants have different visible wants
+- cooks pay more for smoked meat, while merchants buy bulk orders
 - use the People tool to select and assign workers
 - hire more workers with the Hire button
 - workers can auto-fish, staff pools, speed cutters/smokers, and serve more market buyers

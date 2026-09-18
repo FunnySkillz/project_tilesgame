@@ -2,8 +2,9 @@ extends Control
 
 enum TileKind { WATER, LAND, ROAD, EXPANSION }
 enum BuildKind { NONE, POOL, CUTTER, MARKET, STORAGE, SMOKER }
-enum GoalStep { CATCH, STORE, PROCESS, SELL, UPGRADE, BUILD, NET_TWO, SILVERFISH, STORAGE, EXPAND, STABLE_SALES, SMOKER, SMOKED_SALE, COMPLETE }
+enum GoalStep { CATCH, STORE, PROCESS, SELL, UPGRADE, BUILD, NET_TWO, SILVERFISH, STORAGE, EXPAND, STABLE_SALES, SMOKER, SMOKED_SALE, COOK_SALE, MERCHANT_ORDER, COMPLETE }
 enum FishKind { MINNOW, CARP, SILVERFISH }
+enum BuyerKind { VILLAGER, COOK, MERCHANT }
 
 const GRID_W := 8
 const GRID_H := 10
@@ -41,6 +42,9 @@ const WORKER_SMOKER_RATE_BONUS := 0.35
 const SMOKER_SECONDS := 6.0
 const MEAT_PRICE := 6
 const SMOKED_MEAT_PRICE := 14
+const COOK_SMOKED_MEAT_PRICE := 18
+const MERCHANT_BULK_SIZE := 3
+const MERCHANT_BULK_BONUS := 5
 const SMOKER_INPUT_MEAT := 2
 const SMOKER_OUTPUT_SMOKED := 1
 
@@ -69,6 +73,8 @@ var fish_stored_total := 0
 var meat_processed_total := 0
 var meat_sold_total := 0
 var smoked_meat_sold_total := 0
+var buyers_served_by_kind: Array = [0, 0, 0]
+var merchant_orders_completed_total := 0
 var upgrades_bought_total := 0
 var buildings_built_total := 0
 var storage_unlocked := false
@@ -709,29 +715,36 @@ func _tick_customers(delta: float) -> void:
 	var sold_smoked := 0
 	var sold_meat := 0
 	var earned := 0
-	var served := 0
+	var buyers_helped := 0
+	var buyers_completed := 0
+	var sale_units := 0
 	for customer_index in waiting_indices:
-		if served >= sales_capacity:
-			break
-		if smoked_meat > 0:
-			smoked_meat -= 1
-			sold_smoked += 1
-			smoked_meat_sold_total += 1
-			earned += SMOKED_MEAT_PRICE
-		elif meat > 0:
-			meat -= 1
-			sold_meat += 1
-			meat_sold_total += 1
-			earned += MEAT_PRICE
-		else:
+		if sale_units >= sales_capacity:
 			break
 
 		var customer: Dictionary = customer_agents[int(customer_index)]
-		customer["state"] = "leaving_happy"
-		customer["target"] = customer["exit"]
-		customer["patience"] = CUSTOMER_PATIENCE_SECONDS
+		var sale := _sell_to_buyer(customer, sales_capacity - sale_units)
+		var units: int = int(sale["units"])
+		if units <= 0:
+			continue
+
+		sold_meat += int(sale["meat"])
+		sold_smoked += int(sale["smoked"])
+		earned += int(sale["earned"])
+		sale_units += units
+		buyers_helped += 1
+
+		customer["remaining"] = int(customer["remaining"]) - units
+		customer["patience"] = _buyer_patience(int(customer["kind"]))
+		if int(customer["remaining"]) <= 0:
+			if int(customer["kind"]) == BuyerKind.MERCHANT:
+				earned += MERCHANT_BULK_BONUS
+				merchant_orders_completed_total += 1
+			customer["state"] = "leaving_happy"
+			customer["target"] = customer["exit"]
+			_record_buyer_served(int(customer["kind"]))
+			buyers_completed += 1
 		customer_agents[int(customer_index)] = customer
-		served += 1
 
 	if earned <= 0:
 		_update_customer_counts()
@@ -743,7 +756,9 @@ func _tick_customers(delta: float) -> void:
 		sold_parts.append(str(sold_smoked) + " smoked meat")
 	if sold_meat > 0:
 		sold_parts.append(str(sold_meat) + " meat")
-	status_text = "Served " + str(served) + " buyers: " + " and ".join(sold_parts) + " for $" + str(earned) + "."
+	status_text = "Sold " + " and ".join(sold_parts) + " to " + str(buyers_helped) + " buyers for $" + str(earned) + "."
+	if buyers_completed > 0:
+		status_text += " Completed " + str(buyers_completed) + " order" + ("s." if buyers_completed > 1 else ".")
 	_add_popup("+$" + str(earned), _building_center(BuildKind.MARKET), Color("#b7ef8a"))
 	_update_customer_counts()
 
@@ -751,12 +766,15 @@ func _tick_customers(delta: float) -> void:
 func _spawn_customer() -> void:
 	var spawn_cell := Vector2i(randi_range(0, GRID_W - 1), GRID_H - 1)
 	var target_cell := _customer_target_cell()
+	var buyer_kind := _random_buyer_kind()
 	customer_agents.append({
 		"pos": Vector2(spawn_cell.x, spawn_cell.y),
 		"target": Vector2(target_cell.x, target_cell.y),
 		"exit": Vector2(spawn_cell.x, spawn_cell.y),
 		"state": "arriving",
-		"patience": CUSTOMER_PATIENCE_SECONDS
+		"patience": _buyer_patience(buyer_kind),
+		"kind": buyer_kind,
+		"remaining": _buyer_order_size(buyer_kind)
 	})
 
 
@@ -770,14 +788,14 @@ func _tick_customer_agents(delta: float) -> void:
 
 		if str(customer["state"]) == "arriving" and _agent_reached(next_pos, target):
 			customer["state"] = "waiting"
-			customer["patience"] = CUSTOMER_PATIENCE_SECONDS
+			customer["patience"] = _buyer_patience(int(customer["kind"]))
 		elif str(customer["state"]) == "waiting":
 			customer["patience"] = float(customer["patience"]) - delta
 			if float(customer["patience"]) <= 0.0:
 				customer["state"] = "leaving_angry"
 				customer["target"] = customer["exit"]
 				customers_lost += 1
-				status_text = "A buyer left hungry. Add market staff or keep goods ready."
+				status_text = "A " + _buyer_name(int(customer["kind"])) + " left hungry. Match buyer wants or add market staff."
 				_add_popup("-buyer", _building_center(BuildKind.MARKET), Color("#ff8f7a"))
 		elif str(customer["state"]).begins_with("leaving") and _agent_reached(next_pos, target):
 			customer_agents.remove_at(i)
@@ -792,6 +810,144 @@ func _next_customer_seconds() -> float:
 	if _is_smoker_unlocked():
 		pull += 0.2
 	return max(1.15, randf_range(2.4, 4.1) - pull)
+
+
+func _random_buyer_kind() -> int:
+	var roll := randf()
+	var cooks_unlocked := _building_count(BuildKind.SMOKER) > 0 or smoked_meat > 0 or goal_step >= GoalStep.SMOKED_SALE
+	var merchants_unlocked := goal_step >= GoalStep.COOK_SALE or meat_sold_total >= 12 or _building_count(BuildKind.MARKET) >= 2
+
+	if cooks_unlocked and merchants_unlocked:
+		if roll < 0.50:
+			return BuyerKind.VILLAGER
+		if roll < 0.78:
+			return BuyerKind.COOK
+		return BuyerKind.MERCHANT
+	if cooks_unlocked:
+		if roll < 0.68:
+			return BuyerKind.VILLAGER
+		return BuyerKind.COOK
+	if merchants_unlocked:
+		if roll < 0.75:
+			return BuyerKind.VILLAGER
+		return BuyerKind.MERCHANT
+	return BuyerKind.VILLAGER
+
+
+func _sell_to_buyer(customer: Dictionary, capacity: int) -> Dictionary:
+	var buyer_kind := int(customer["kind"])
+	var remaining: int = min(int(customer["remaining"]), capacity)
+	var result := {
+		"meat": 0,
+		"smoked": 0,
+		"earned": 0,
+		"units": 0
+	}
+
+	match buyer_kind:
+		BuyerKind.VILLAGER:
+			if meat > 0:
+				meat -= 1
+				result["meat"] = 1
+				result["earned"] = MEAT_PRICE
+				result["units"] = 1
+			elif smoked_meat > 0:
+				smoked_meat -= 1
+				result["smoked"] = 1
+				result["earned"] = SMOKED_MEAT_PRICE
+				result["units"] = 1
+		BuyerKind.COOK:
+			if smoked_meat > 0:
+				smoked_meat -= 1
+				result["smoked"] = 1
+				result["earned"] = COOK_SMOKED_MEAT_PRICE
+				result["units"] = 1
+		BuyerKind.MERCHANT:
+			while remaining > 0 and (meat > 0 or smoked_meat > 0):
+				if meat > 0:
+					meat -= 1
+					result["meat"] = int(result["meat"]) + 1
+					result["earned"] = int(result["earned"]) + MEAT_PRICE
+				else:
+					smoked_meat -= 1
+					result["smoked"] = int(result["smoked"]) + 1
+					result["earned"] = int(result["earned"]) + SMOKED_MEAT_PRICE
+				result["units"] = int(result["units"]) + 1
+				remaining -= 1
+
+	meat_sold_total += int(result["meat"])
+	smoked_meat_sold_total += int(result["smoked"])
+	return result
+
+
+func _record_buyer_served(buyer_kind: int) -> void:
+	buyers_served_by_kind[buyer_kind] = int(buyers_served_by_kind[buyer_kind]) + 1
+
+
+func _buyer_order_size(buyer_kind: int) -> int:
+	if buyer_kind == BuyerKind.MERCHANT:
+		return MERCHANT_BULK_SIZE
+	return 1
+
+
+func _buyer_patience(buyer_kind: int) -> float:
+	match buyer_kind:
+		BuyerKind.COOK:
+			return CUSTOMER_PATIENCE_SECONDS + 2.0
+		BuyerKind.MERCHANT:
+			return CUSTOMER_PATIENCE_SECONDS + 4.0
+		_:
+			return CUSTOMER_PATIENCE_SECONDS
+
+
+func _buyer_name(buyer_kind: int) -> String:
+	match buyer_kind:
+		BuyerKind.COOK:
+			return "cook"
+		BuyerKind.MERCHANT:
+			return "merchant"
+		_:
+			return "villager"
+
+
+func _buyer_color(buyer_kind: int) -> Color:
+	match buyer_kind:
+		BuyerKind.COOK:
+			return Color("#d58cff")
+		BuyerKind.MERCHANT:
+			return Color("#f0d597")
+		_:
+			return Color("#9fe4dd")
+
+
+func _buyer_short_label(buyer_kind: int) -> String:
+	match buyer_kind:
+		BuyerKind.COOK:
+			return "C"
+		BuyerKind.MERCHANT:
+			return "M"
+		_:
+			return "V"
+
+
+func _buyer_want_label(customer: Dictionary) -> String:
+	match int(customer["kind"]):
+		BuyerKind.COOK:
+			return "S"
+		BuyerKind.MERCHANT:
+			return "x" + str(customer["remaining"])
+		_:
+			return "M"
+
+
+func _buyer_want_text(customer: Dictionary) -> String:
+	match int(customer["kind"]):
+		BuyerKind.COOK:
+			return "wants smoked meat"
+		BuyerKind.MERCHANT:
+			return "wants " + str(customer["remaining"]) + " goods for a bulk order"
+		_:
+			return "wants meat"
 
 
 func _customer_target_cell() -> Vector2i:
@@ -1198,6 +1354,18 @@ func _worker_index_at_cell(cell: Vector2i) -> int:
 	return -1
 
 
+func _buyer_index_at_cell(cell: Vector2i) -> int:
+	for i in customer_agents.size():
+		var customer: Dictionary = customer_agents[i]
+		var pos: Vector2 = customer["pos"]
+		var target: Vector2 = customer["target"]
+		if Vector2(cell.x, cell.y).distance_to(pos) <= 0.55:
+			return i
+		if Vector2(cell.x, cell.y).distance_to(target) <= 0.35:
+			return i
+	return -1
+
+
 func _is_valid_worker_assignment(cell: Vector2i) -> bool:
 	var tile: Dictionary = tiles[cell.y][cell.x]
 	return tile["kind"] != TileKind.EXPANSION
@@ -1504,7 +1672,13 @@ func _check_goal_progress() -> void:
 				_complete_goal("Smoker built. The fishery can make premium goods.", 16)
 		GoalStep.SMOKED_SALE:
 			if smoked_meat_sold_total >= 2:
-				_complete_goal("Smoked meat sells well. The first progression branch is complete.", 20)
+				_complete_goal("Smoked meat sells well. Cooks and merchants are noticing.", 20)
+		GoalStep.COOK_SALE:
+			if int(buyers_served_by_kind[BuyerKind.COOK]) >= 1:
+				_complete_goal("A cook bought smoked meat. Buyer preferences now matter.", 18)
+		GoalStep.MERCHANT_ORDER:
+			if merchant_orders_completed_total >= 1:
+				_complete_goal("Merchant bulk order complete. The dock trade is alive.", 22)
 
 
 func _complete_goal(message: String, reward: int) -> void:
@@ -1542,8 +1716,12 @@ func _goal_text() -> String:
 			return "Goal: Build 1 Smoker for premium goods. " + _progress_text(_building_count(BuildKind.SMOKER), 1)
 		GoalStep.SMOKED_SALE:
 			return "Goal: Sell 2 smoked meat. " + _progress_text(smoked_meat_sold_total, 2)
+		GoalStep.COOK_SALE:
+			return "Goal: Serve 1 cook. Cooks want smoked meat. " + _progress_text(int(buyers_served_by_kind[BuyerKind.COOK]), 1)
+		GoalStep.MERCHANT_ORDER:
+			return "Goal: Complete 1 merchant bulk order. " + _progress_text(merchant_orders_completed_total, 1)
 		_:
-			return "Progression branch complete. Next milestone: cold and danger."
+			return "Living trade branch complete. Next milestone: order board, plaza paths, or cold."
 
 
 func _unlock_text() -> String:
@@ -1557,7 +1735,11 @@ func _unlock_text() -> String:
 		return "Unlocks: Expand land and prove steady sales to unlock Smoker."
 	if _building_count(BuildKind.SMOKER) <= 0:
 		return "Unlocks: Smoker available. Turns 2 meat into smoked meat worth $" + str(SMOKED_MEAT_PRICE) + "."
-	return "Unlocks: assign workers to water, pools, cutters, markets, or smokers."
+	if goal_step < GoalStep.COOK_SALE:
+		return "Unlocks: buyer wants appear above people. M=meat, S=smoked, x3=bulk."
+	if goal_step < GoalStep.MERCHANT_ORDER:
+		return "Unlocks: cooks pay $" + str(COOK_SMOKED_MEAT_PRICE) + " for smoked meat."
+	return "Unlocks: merchants buy bulk orders and pay $" + str(MERCHANT_BULK_BONUS) + " completion bonuses."
 
 
 func _progress_text(current: int, target: int) -> String:
@@ -1737,11 +1919,12 @@ func _draw_expansion_tile(rect: Rect2) -> void:
 
 func _draw_people() -> void:
 	for customer in customer_agents:
-		var color := Color("#9fe4dd")
+		var buyer_kind := int(customer["kind"])
+		var color := _buyer_color(buyer_kind)
 		var state := str(customer["state"])
 		if state == "waiting":
 			var patience_ratio: float = clamp(float(customer["patience"]) / CUSTOMER_PATIENCE_SECONDS, 0.0, 1.0)
-			color = Color("#b7ef8a") if patience_ratio > 0.5 else Color("#ffb36b")
+			color = _buyer_color(buyer_kind) if patience_ratio > 0.5 else Color("#ffb36b")
 			if patience_ratio < 0.25:
 				color = Color("#ff8f7a")
 		elif state == "leaving_happy":
@@ -1749,7 +1932,10 @@ func _draw_people() -> void:
 		elif state == "leaving_angry":
 			color = Color("#ff8f7a")
 		var customer_pos: Vector2 = customer["pos"]
-		_draw_person(_agent_screen_pos(customer_pos), color, false, "")
+		var screen_pos := _agent_screen_pos(customer_pos)
+		_draw_person(screen_pos, color, false, _buyer_short_label(buyer_kind))
+		if state == "arriving" or state == "waiting":
+			_draw_want_bubble(screen_pos, _buyer_want_label(customer), _buyer_color(buyer_kind))
 
 	for i in workers.size():
 		var worker: Dictionary = workers[i]
@@ -1773,6 +1959,15 @@ func _draw_person(center: Vector2, body_color: Color, selected: bool, label: Str
 	draw_line(center + Vector2(body_size.x * 0.55, tile_px * 0.02), center + Vector2(body_size.x, tile_px * 0.12), body_color, 2.0)
 	if label != "":
 		draw_string(get_theme_default_font(), center + Vector2(-tile_px * 0.12, tile_px * 0.28), label, HORIZONTAL_ALIGNMENT_CENTER, tile_px * 0.24, 11, Color("#17212b"))
+
+
+func _draw_want_bubble(center: Vector2, label: String, color: Color) -> void:
+	var font := get_theme_default_font()
+	var bubble_width: float = max(tile_px * 0.32, float(label.length()) * 8.0 + 8.0)
+	var bubble := Rect2(center + Vector2(-bubble_width * 0.5, -tile_px * 0.54), Vector2(bubble_width, 15.0))
+	draw_rect(bubble, Color("#f5efe1"))
+	draw_rect(bubble, color, false, 1.5)
+	draw_string(font, bubble.position + Vector2(0, 11.0), label, HORIZONTAL_ALIGNMENT_CENTER, bubble.size.x, 11, Color("#17212b"))
 
 
 func _draw_land_tile(rect: Rect2, building: int) -> void:
@@ -1887,6 +2082,11 @@ func _selected_tile_text() -> String:
 		else:
 			assignment = _worker_assignment_hint(assigned)
 		return "Person: " + _worker_name(worker_index) + ". " + assignment
+
+	var buyer_index := _buyer_index_at_cell(selected_cell)
+	if buyer_index >= 0:
+		var buyer: Dictionary = customer_agents[buyer_index]
+		return "Buyer: " + _buyer_name(int(buyer["kind"])) + " " + _buyer_want_text(buyer) + ". State: " + str(buyer["state"]) + "."
 
 	var tile: Dictionary = tiles[selected_cell.y][selected_cell.x]
 	if tile["kind"] == TileKind.WATER:

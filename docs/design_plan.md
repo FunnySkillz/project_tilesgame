@@ -31,7 +31,7 @@ Even simple visuals should communicate state:
 - fish appear in water
 - pools visibly fill
 - machines animate while processing
-- customers arrive, wait, buy, and leave
+- buyers arrive, wait, buy, and leave
 - money and resources pop with clear feedback
 
 The base should feel alive, even before advanced automation exists.
@@ -76,7 +76,7 @@ Examples:
 - reinforced pool can hold aggressive fish
 - larger cutter can process bigger fish
 - freezer prevents spoilage
-- road unlocks truck customers
+- road unlocks truck buyers
 - heater allows frozen tiles to keep working
 - harpoon unlocks dangerous fish
 - trap or turret protects pools from attacks
@@ -93,7 +93,7 @@ Pressure systems can include:
 - cold slows machines
 - monsters attack at night
 - storms damage water-side buildings
-- customers leave if waiting too long
+- buyers leave if waiting too long
 - bigger fish require stronger equipment
 
 The player should feel challenged, not bullied. Early pressure should be soft, readable, and recoverable.
@@ -146,7 +146,7 @@ This is the first moment where the player feels ownership over the base.
 Introduce one soft constraint:
 
 - pools fill up
-- customers wait too long
+- buyers wait too long
 - cutter is too slow
 - better fish spawn farther away
 - storage is too small
@@ -203,7 +203,7 @@ Core buildings:
 
 - Pool: stores live fish
 - Cutter: turns fish into meat
-- Market: sells goods to walk-in customers
+- Market: sells goods to walk-in buyers
 - Storage: holds processed goods
 - Freezer: slows or prevents spoilage
 - Net Station: improves catching
@@ -253,11 +253,11 @@ Monster tier:
 
 Each new fish should force the player to adapt at least one part of the base.
 
-### Customers And Selling
+### Buyers And Selling
 
-Customers create demand and prevent selling from feeling automatic.
+Buyers create demand and prevent selling from feeling automatic.
 
-Customer types:
+Buyer types:
 
 - villagers: buy cheap meat
 - cooks: prefer quality cuts
@@ -276,6 +276,13 @@ Buyers should become more visible over time:
 - later trucks create timed orders
 
 Selling should feel like people coming to the dock, not invisible conversion into money.
+
+Current prototype buyer rules:
+
+- villagers want meat and will buy smoked meat only if regular meat is unavailable
+- cooks want smoked meat and pay a premium for it
+- merchants want several goods and can be served over multiple sale ticks
+- visible want bubbles show what each buyer expects before they leave
 
 ### Progression Tracks
 
@@ -369,7 +376,7 @@ The game needs satisfying feedback:
 - pool bubbles
 - cutter chopping animation
 - coins pop when selling
-- customers visibly leave happy or angry
+- buyers visibly leave happy or angry
 - machines steam in the cold
 - warning lights before monster attacks
 - clear sound effects for catching, processing, selling, upgrading, and danger
@@ -402,7 +409,7 @@ Needs:
 - building ranges
 - storage limits
 - machine speed differences
-- customer waiting
+- buyer waiting
 - better tile inspector
 
 ### Milestone 3: Progression

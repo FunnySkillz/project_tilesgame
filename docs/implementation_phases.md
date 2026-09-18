@@ -26,8 +26,8 @@ Implemented:
 - tap water to catch fish
 - tap pool to store carried fish
 - cutter automatically processes live fish into meat
-- market automatically sells meat to waiting customers
-- money, customers, carried fish, live fish, and meat HUD
+- market automatically sells meat to waiting buyers
+- money, buyers, carried fish, live fish, and meat HUD
 - net, pool, and cutter upgrades
 - guided objective chain for the first loop
 - selected tile feedback
@@ -49,7 +49,7 @@ Needs:
 - build, remove, and move buildings
 - building ranges and adjacency bonuses
 - storage limits
-- market/customer waiting pressure
+- market/buyer waiting pressure
 - better tile inspector
 - basic path or adjacency rules for production flow
 
@@ -65,12 +65,12 @@ Implemented:
 - inspector text for local layout bonuses
 - button affordability tinting and dynamic upgrade prices
 - timed market sales instead of instant frame-by-frame selling
-- customer patience timer and lost-customer pressure
-- initial visible waiting customers on the road row, later replaced by Phase 4 buyer agents
+- buyer patience timer and lost-buyer pressure
+- initial visible waiting buyers on the road row, later replaced by Phase 4 buyer agents
 
 Next:
 
-- tune customer arrival, patience, sale speed, and sale value after playtesting
+- tune buyer arrival, patience, sale speed, and sale value after playtesting
 - add a first lightweight texture pack once the layout loop feels readable
 
 Decision:
@@ -129,7 +129,7 @@ Implemented:
 
 ## Phase 4: Living Base And Demand
 
-Status: first playable slice complete.
+Status: second playable slice complete.
 
 Goal: make the fishery feel like a busy, interactive place instead of only a resource board.
 
@@ -140,9 +140,10 @@ Needs:
 - [x] People tool for selecting and assigning workers
 - [x] hire-worker command and crew cap
 - [x] worker jobs that affect production
-- [ ] richer buyer types and preferences
+- [x] richer buyer types and preferences
+- [x] visible buyer wants
 - [ ] trade stalls or order board
-- [ ] more expressive worker/customer animations
+- [ ] more expressive worker/buyer animations
 - [ ] clearer paths, docks, and walkable plaza layout
 
 Implemented:
@@ -157,13 +158,18 @@ Implemented:
 - pool workers add live-fish capacity
 - cutter, market, and smoker workers boost production or sales capacity
 - HUD, tile inspector, footer hints, and placeholders now support the people layer
+- villagers, cooks, and merchants now appear as distinct buyer types
+- buyer want bubbles show M for meat, S for smoked meat, and x3-style bulk demand
+- villagers buy regular meat first, cooks wait for smoked meat, and merchants buy bulk orders over multiple sale ticks
+- cooks pay a premium for smoked meat
+- completed merchant orders pay a small bulk bonus
+- goal text now guides the player through cook and merchant demand
 
 Next:
 
-- add buyer types such as villagers, cooks, and merchants
-- give buyers visible wants so smoked meat and regular meat create different selling choices
 - add a simple order board or stall system for larger sales moments
 - improve the board shape toward a dock/plaza fishery layout
+- add more expressive worker/buyer animation states
 
 ## Phase 5: Danger
 
