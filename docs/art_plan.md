@@ -130,6 +130,8 @@ Phase 2 layout mechanics are readable enough to support a first texture pass, an
 
 The boat upgrade path currently uses procedural details only. Keep it that way until fishing zones prove what boat silhouettes and net states must communicate at phone size.
 
+The generated images in `assets/pics/` are useful as style and asset-direction references. Treat them as concept boards for palette, fish silhouettes, boat/net states, water-zone treatments, dock pieces, people, and props. Do not use the full images directly in-game because they include labels, backgrounds, mixed scales, and multiple assets per sheet. The production version should be transparent PNG sprites or atlases made from this direction.
+
 Next art milestone:
 
 Generate a small prototype texture pack after active fishing zones and boat upgrade silhouettes are stable. The first pack should cover water, land, dock, plaza, road, expansion ground, pool, cutter, market, storage, smoker, dock order board, boat, net, worker, buyer, minnow, carp, silverfish, meat, smoked meat, money, crates, lamps, and market props.

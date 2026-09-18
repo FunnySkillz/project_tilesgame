@@ -1,6 +1,7 @@
 extends Control
 
 enum TileKind { WATER, LAND, DOCK, PLAZA, ROAD, EXPANSION }
+enum WaterZone { SHALLOW, OPEN, COLD, DEEP, MONSTER }
 enum BuildKind { NONE, POOL, CUTTER, MARKET, STORAGE, SMOKER }
 enum GoalStep { CATCH, STORE, PROCESS, SELL, UPGRADE, BUILD, NET_TWO, SILVERFISH, STORAGE, EXPAND, STABLE_SALES, SMOKER, SMOKED_SALE, COOK_SALE, MERCHANT_ORDER, DOCK_ORDER, COMPLETE }
 enum FishKind { MINNOW, CARP, SILVERFISH }
@@ -184,6 +185,7 @@ func _init_tiles() -> void:
 	for y in GRID_H:
 		var row: Array = []
 		for x in GRID_W:
+			var cell := Vector2i(x, y)
 			var kind := TileKind.LAND
 			if y < WATER_ROWS:
 				kind = TileKind.WATER
@@ -193,12 +195,14 @@ func _init_tiles() -> void:
 				kind = TileKind.EXPANSION
 			elif y == WATER_ROWS and x <= 5:
 				kind = TileKind.DOCK
-			elif _is_starter_plaza_cell(Vector2i(x, y)):
+			elif _is_starter_plaza_cell(cell):
 				kind = TileKind.PLAZA
-			var fish_kind := _random_fish_kind()
+			var water_zone := _water_zone_for_cell(cell) if kind == TileKind.WATER else WaterZone.SHALLOW
+			var fish_kind := _random_fish_kind_for_zone(water_zone)
 			var fish_count := randi_range(1, 2) if kind == TileKind.WATER and randf() < 0.45 else 0
 			row.append({
 				"kind": kind,
+				"water_zone": water_zone,
 				"building": BuildKind.NONE,
 				"fish": fish_count,
 				"fish_kind": fish_kind,
@@ -251,6 +255,107 @@ func _set_starter_building(cell: Vector2i, building: int) -> void:
 	tiles[cell.y][cell.x] = tile
 
 
+func _water_zone_for_cell(cell: Vector2i) -> int:
+	if cell.y >= WATER_ROWS:
+		return WaterZone.SHALLOW
+	if cell.y == WATER_ROWS - 1:
+		return WaterZone.SHALLOW
+	if cell.y == 0 and cell.x >= GRID_W - 3:
+		return WaterZone.MONSTER
+	if cell.x <= 1:
+		return WaterZone.COLD
+	if cell.y == 0:
+		return WaterZone.DEEP
+	return WaterZone.OPEN
+
+
+func _water_zone_at_world_position(position: Vector2) -> int:
+	var cell := Vector2i(
+		int(clamp(floor(position.x), 0.0, float(GRID_W - 1))),
+		int(clamp(floor(position.y), 0.0, float(WATER_ROWS - 1)))
+	)
+	var tile: Dictionary = tiles[cell.y][cell.x]
+	return int(tile["water_zone"])
+
+
+func _water_zone_name(water_zone: int) -> String:
+	match water_zone:
+		WaterZone.SHALLOW:
+			return "shallow water"
+		WaterZone.OPEN:
+			return "open water"
+		WaterZone.COLD:
+			return "cold water"
+		WaterZone.DEEP:
+			return "deep water"
+		WaterZone.MONSTER:
+			return "monster water"
+		_:
+			return "water"
+
+
+func _water_zone_short_name(water_zone: int) -> String:
+	match water_zone:
+		WaterZone.SHALLOW:
+			return "SHALLOW"
+		WaterZone.OPEN:
+			return "OPEN"
+		WaterZone.COLD:
+			return "COLD"
+		WaterZone.DEEP:
+			return "DEEP"
+		WaterZone.MONSTER:
+			return "MONSTER"
+		_:
+			return "WATER"
+
+
+func _water_zone_hint(water_zone: int) -> String:
+	match water_zone:
+		WaterZone.SHALLOW:
+			return "Minnows gather here."
+		WaterZone.OPEN:
+			return "Balanced early catches."
+		WaterZone.COLD:
+			return "Fish move slower; silverfish like the chill."
+		WaterZone.DEEP:
+			return "Better fish move faster here."
+		WaterZone.MONSTER:
+			return "Best early fish mix, but danger will live here later."
+		_:
+			return ""
+
+
+func _water_zone_color(water_zone: int) -> Color:
+	match water_zone:
+		WaterZone.SHALLOW:
+			return Color("#2e8fa2")
+		WaterZone.OPEN:
+			return Color("#2476a0")
+		WaterZone.COLD:
+			return Color("#5fa7c7")
+		WaterZone.DEEP:
+			return Color("#15476d")
+		WaterZone.MONSTER:
+			return Color("#18324f")
+		_:
+			return Color("#326b82")
+
+
+func _water_zone_speed_modifier(water_zone: int) -> float:
+	match water_zone:
+		WaterZone.SHALLOW:
+			return 0.92
+		WaterZone.COLD:
+			return 0.72
+		WaterZone.DEEP:
+			return 1.1
+		WaterZone.MONSTER:
+			return 1.28
+		_:
+			return 1.0
+
+
 func _init_active_fishing() -> void:
 	active_fish_agents.clear()
 	boat_agent.setup(_boat_home_position())
@@ -259,13 +364,59 @@ func _init_active_fishing() -> void:
 
 
 func _spawn_active_fish() -> void:
-	var start_position := Vector2(
-		randf_range(0.35, float(GRID_W) - 0.35),
-		randf_range(0.25, float(WATER_ROWS) - 0.35)
-	)
+	var water_zone := _random_active_fish_zone()
+	var start_position := _random_position_in_water_zone(water_zone)
 	var angle := randf_range(0.0, TAU)
 	var velocity := Vector2(cos(angle), sin(angle)) * randf_range(0.25, 0.55)
-	active_fish_agents.append(FishAgentScript.new().setup(start_position, velocity, _random_fish_kind()))
+	active_fish_agents.append(FishAgentScript.new().setup(start_position, velocity, _random_fish_kind_for_zone(water_zone)))
+
+
+func _random_active_fish_zone() -> int:
+	var roll := randf()
+	if net_level < 2:
+		if roll < 0.52:
+			return WaterZone.SHALLOW
+		if roll < 0.82:
+			return WaterZone.OPEN
+		if roll < 0.94:
+			return WaterZone.COLD
+		return WaterZone.DEEP
+	if boat_agent.level >= 2:
+		if roll < 0.24:
+			return WaterZone.SHALLOW
+		if roll < 0.50:
+			return WaterZone.OPEN
+		if roll < 0.68:
+			return WaterZone.COLD
+		if roll < 0.88:
+			return WaterZone.DEEP
+		return WaterZone.MONSTER
+	if roll < 0.34:
+		return WaterZone.SHALLOW
+	if roll < 0.64:
+		return WaterZone.OPEN
+	if roll < 0.80:
+		return WaterZone.COLD
+	if roll < 0.95:
+		return WaterZone.DEEP
+	return WaterZone.MONSTER
+
+
+func _random_position_in_water_zone(water_zone: int) -> Vector2:
+	var cells: Array = []
+	for y in WATER_ROWS:
+		for x in GRID_W:
+			var tile: Dictionary = tiles[y][x]
+			if int(tile["water_zone"]) == water_zone:
+				cells.append(Vector2i(x, y))
+	if cells.is_empty():
+		return Vector2(randf_range(0.35, float(GRID_W) - 0.35), randf_range(0.25, float(WATER_ROWS) - 0.35))
+
+	var cell: Vector2i = cells[randi_range(0, cells.size() - 1)]
+	return Vector2(
+		float(cell.x) + randf_range(0.18, 0.82),
+		float(cell.y) + randf_range(0.18, 0.82)
+	)
 
 
 func _boat_home_position() -> Vector2:
@@ -494,7 +645,7 @@ func _use_catch_tool(cell: Vector2i) -> void:
 	var tile: Dictionary = tiles[cell.y][cell.x]
 	if tile["kind"] == TileKind.WATER:
 		boat_agent.set_target(_water_cell_target(cell))
-		status_text = "Boat heading out. Drag on water to guide it, then tap the dock to unload."
+		status_text = "Boat heading to " + _water_zone_name(int(tile["water_zone"])) + ". Drag to guide it, then tap the dock to unload."
 		_add_popup_for_cell(cell, "Boat target", Color("#9fe4dd"))
 		return
 
@@ -792,7 +943,7 @@ func _tick_fish_spawns(delta: float) -> void:
 
 			tile["spawn_timer"] -= delta
 			if tile["spawn_timer"] <= 0.0:
-				tile["fish_kind"] = _random_fish_kind()
+				tile["fish_kind"] = _random_fish_kind_for_zone(int(tile["water_zone"]))
 				tile["fish"] = randi_range(1, min(3, 1 + net_level))
 				tile["spawn_timer"] = randf_range(3.0, 7.0)
 			tiles[y][x] = tile
@@ -804,7 +955,8 @@ func _tick_active_fishing(delta: float) -> void:
 	var water_min := Vector2(0.15, 0.15)
 	var water_max := Vector2(float(GRID_W) - 0.15, float(WATER_ROWS) - 0.2)
 	for fish in active_fish_agents:
-		fish.tick(delta, water_min, water_max, boat_agent.position)
+		var water_zone := _water_zone_at_world_position(fish.position)
+		fish.tick(delta, water_min, water_max, boat_agent.position, _water_zone_speed_modifier(water_zone))
 
 	_collect_fish_in_net()
 	while active_fish_agents.size() < ACTIVE_FISH_MAX:
@@ -1639,7 +1791,49 @@ func _is_plaza_connected(cell: Vector2i) -> bool:
 
 
 func _random_fish_kind() -> int:
+	return _random_fish_kind_for_zone(WaterZone.OPEN)
+
+
+func _random_fish_kind_for_zone(water_zone: int) -> int:
 	var roll := randf()
+	match water_zone:
+		WaterZone.SHALLOW:
+			if net_level >= 2 and roll > 0.92:
+				return FishKind.SILVERFISH
+			if roll < 0.82:
+				return FishKind.MINNOW
+			return FishKind.CARP
+		WaterZone.COLD:
+			if net_level >= 2:
+				if roll < 0.36:
+					return FishKind.MINNOW
+				if roll < 0.62:
+					return FishKind.CARP
+				return FishKind.SILVERFISH
+			if roll < 0.62:
+				return FishKind.MINNOW
+			return FishKind.CARP
+		WaterZone.DEEP:
+			if net_level >= 2:
+				if roll < 0.22:
+					return FishKind.MINNOW
+				if roll < 0.64:
+					return FishKind.CARP
+				return FishKind.SILVERFISH
+			if roll < 0.42:
+				return FishKind.MINNOW
+			return FishKind.CARP
+		WaterZone.MONSTER:
+			if net_level >= 2:
+				if roll < 0.18:
+					return FishKind.MINNOW
+				if roll < 0.46:
+					return FishKind.CARP
+				return FishKind.SILVERFISH
+			if roll < 0.25:
+				return FishKind.MINNOW
+			return FishKind.CARP
+
 	if net_level >= 3:
 		if roll < 0.30:
 			return FishKind.MINNOW
@@ -2323,7 +2517,7 @@ func _draw_grid() -> void:
 
 			var fill := Color("#5e6747")
 			if tile["kind"] == TileKind.WATER:
-				fill = Color("#326b82")
+				fill = _water_zone_color(int(tile["water_zone"]))
 			elif tile["kind"] == TileKind.DOCK:
 				fill = Color("#66503d")
 			elif tile["kind"] == TileKind.PLAZA:
@@ -2336,7 +2530,7 @@ func _draw_grid() -> void:
 			draw_rect(rect, Color("#0e151b"), false, 2.0)
 
 			if tile["kind"] == TileKind.WATER:
-				_draw_water_tile(rect, int(tile["fish"]), int(tile["fish_kind"]))
+				_draw_water_tile(rect, int(tile["fish"]), int(tile["fish_kind"]), int(tile["water_zone"]))
 			elif tile["kind"] == TileKind.DOCK:
 				_draw_dock_tile(rect, int(tile["building"]))
 			elif tile["kind"] == TileKind.PLAZA:
@@ -2356,9 +2550,19 @@ func _draw_grid() -> void:
 				draw_rect(rect.grow(2.0), Color("#f2d16b"), false, 3.0)
 
 
-func _draw_water_tile(rect: Rect2, fish_count: int, fish_kind: int) -> void:
-	draw_arc(rect.get_center(), tile_px * 0.26, 0.2, PI - 0.2, 16, Color("#9fe4dd"), 2.0)
-	draw_arc(rect.get_center() + Vector2(0, 6), tile_px * 0.22, 0.2, PI - 0.2, 16, Color("#72c5c3"), 2.0)
+func _draw_water_tile(rect: Rect2, fish_count: int, fish_kind: int, water_zone: int) -> void:
+	var ripple_color := Color("#9fe4dd")
+	var secondary_color := Color("#72c5c3")
+	if water_zone == WaterZone.DEEP or water_zone == WaterZone.MONSTER:
+		ripple_color = Color("#5aa9c8")
+		secondary_color = Color("#326f8f")
+	elif water_zone == WaterZone.COLD:
+		ripple_color = Color("#d6f5ff")
+		secondary_color = Color("#a7d7e8")
+
+	draw_arc(rect.get_center(), tile_px * 0.26, 0.2, PI - 0.2, 16, ripple_color, 2.0)
+	draw_arc(rect.get_center() + Vector2(0, 6), tile_px * 0.22, 0.2, PI - 0.2, 16, secondary_color, 2.0)
+	_draw_water_zone_detail(rect, water_zone)
 
 	# Tile stock still powers worker autofishing; moving fish are the manual catch targets.
 	for i in fish_count:
@@ -2366,6 +2570,31 @@ func _draw_water_tile(rect: Rect2, fish_count: int, fish_kind: int) -> void:
 		var marker_color: Color = _fish_color(fish_kind).lerp(Color("#f5efe1"), 0.35)
 		marker_color.a = 0.55
 		draw_circle(rect.get_center() + offset, tile_px * 0.035, marker_color)
+
+
+func _draw_water_zone_detail(rect: Rect2, water_zone: int) -> void:
+	match water_zone:
+		WaterZone.SHALLOW:
+			draw_line(rect.position + Vector2(5, rect.size.y - 8), rect.end - Vector2(5, 6), Color("#a8e6dc"), 1.2)
+			draw_circle(rect.position + Vector2(rect.size.x * 0.78, rect.size.y * 0.28), tile_px * 0.035, Color("#bdebd7"))
+		WaterZone.COLD:
+			var floe := PackedVector2Array([
+				rect.position + Vector2(rect.size.x * 0.18, rect.size.y * 0.28),
+				rect.position + Vector2(rect.size.x * 0.38, rect.size.y * 0.20),
+				rect.position + Vector2(rect.size.x * 0.52, rect.size.y * 0.34),
+				rect.position + Vector2(rect.size.x * 0.34, rect.size.y * 0.48),
+				rect.position + Vector2(rect.size.x * 0.16, rect.size.y * 0.42)
+			])
+			var floe_outline := PackedVector2Array([floe[0], floe[1], floe[2], floe[3], floe[4], floe[0]])
+			draw_colored_polygon(floe, Color("#cde9f2"))
+			draw_polyline(floe_outline, Color("#f5fbff"), 1.2)
+		WaterZone.DEEP:
+			draw_circle(rect.get_center(), tile_px * 0.18, Color("#0e2e4b"))
+			draw_arc(rect.get_center(), tile_px * 0.31, PI * 0.08, PI * 0.85, 16, Color("#2d7598"), 1.4)
+		WaterZone.MONSTER:
+			draw_circle(rect.get_center(), tile_px * 0.22, Color("#10253d"))
+			draw_arc(rect.get_center(), tile_px * 0.31, PI * 0.1, PI * 1.7, 20, Color("#5b8aa0"), 1.5)
+			draw_circle(rect.get_center() + Vector2(tile_px * 0.12, -tile_px * 0.04), tile_px * 0.025, Color("#ff8f7a"))
 
 
 func _draw_road_tile(rect: Rect2) -> void:
@@ -2648,7 +2877,8 @@ func _selected_tile_text() -> String:
 
 	var tile: Dictionary = tiles[selected_cell.y][selected_cell.x]
 	if tile["kind"] == TileKind.WATER:
-		return "Tile: water. Drag with Catch to steer the boat; visible fish caught in the net unload at the dock."
+		var water_zone := int(tile["water_zone"])
+		return "Tile: " + _water_zone_name(water_zone) + ". " + _water_zone_hint(water_zone) + " Drag with Catch to steer; unload at the dock."
 	if tile["kind"] == TileKind.DOCK:
 		return "Tile: dock. Tap with Catch to return and unload the boat. Dock tiles are buildable."
 	if tile["kind"] == TileKind.PLAZA:

@@ -279,12 +279,14 @@ Current direction:
 - net upgrades should visibly increase net capacity and net size
 - minnows, carp, and silverfish have different movement personalities
 - boat upgrades improve speed and net hold capacity, with small visual details on the boat
+- water is split into shallow, open, cold, deep, and monster zones
+- water zones affect fish mix, spawn location, and movement pressure
 
 Later active-fishing depth:
 
 - smoother steering and possible drawn path feedback
 - deeper species behavior such as minnow schools, lure/bait reactions, and predator avoidance
-- fishing zones such as shallow, cold, deep, and monster water
+- zone-specific hazards, rewards, warnings, and monster pressure
 - boat upgrades for lights, net strength, storage, sonar, and armor
 
 ### Buyers And Selling
@@ -488,6 +490,7 @@ Needs:
 - fish behavior differences
 - boat speed and hold upgrades
 - fishing zones
+- zone-specific hazards and rewards
 
 ### Milestone 5: Danger
 

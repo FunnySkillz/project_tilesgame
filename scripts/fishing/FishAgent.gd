@@ -17,14 +17,14 @@ func setup(start_position: Vector2, start_velocity: Vector2, kind: int) -> FishA
 	return self
 
 
-func tick(delta: float, water_min: Vector2, water_max: Vector2, boat_position: Vector2) -> void:
+func tick(delta: float, water_min: Vector2, water_max: Vector2, boat_position: Vector2, zone_speed_modifier: float = 1.0) -> void:
 	turn_timer -= delta
 	wiggle_phase += delta * _wiggle_speed()
 
-	var desired_velocity := _wander_velocity()
+	var desired_velocity := _wander_velocity() * zone_speed_modifier
 	var away_from_boat := position - boat_position
 	if away_from_boat.length() < _flee_radius() and away_from_boat.length() > 0.001:
-		desired_velocity = away_from_boat.normalized() * _panic_speed()
+		desired_velocity = away_from_boat.normalized() * _panic_speed() * zone_speed_modifier
 
 	velocity = velocity.lerp(desired_velocity, clamp(delta * _turn_response(), 0.0, 1.0))
 	var swim_velocity := velocity

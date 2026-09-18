@@ -17,6 +17,7 @@ The first playable version focuses only on the loop:
 - water tiles spawn visible swimming fish
 - the player steers a boat by dragging over water
 - the boat catches fish with a visible net and unloads at the dock
+- shallow, open, cold, deep, and monster water create different fishing routes
 - land, dock, and plaza tiles accept buildings
 - pools increase live fish capacity
 - cutters turn live fish into meat
