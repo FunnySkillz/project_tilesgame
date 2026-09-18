@@ -91,13 +91,13 @@ Needs:
 - [x] first new building
 - [ ] more buildings
 - [x] first land expansion mechanic
-- [ ] first 30-minute goal chain
+- [x] first 30-minute goal chain
 
 Next:
 
-- turn the current goal line into a fuller first 30-minute goal chain
 - broaden the unlock tree after land expansion gives it more branches
 - consider another building only after the goal chain reveals a clear pressure point
+- tune the first 30-minute chain after playtesting for pacing and reward values
 
 Implemented:
 
@@ -119,6 +119,8 @@ Implemented:
 - Expand tool unlocks after building Storage
 - expansion converts edge ground into buildable land for money
 - goal and unlock text now guide the player through Storage into land expansion
+- goal chain now continues through Net 2, silverfish, Storage, land expansion, and steady sales
+- goal rewards continue through the first progression arc
 
 ## Phase 4: Danger
 

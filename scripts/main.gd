@@ -2,7 +2,7 @@ extends Control
 
 enum TileKind { WATER, LAND, ROAD, EXPANSION }
 enum BuildKind { NONE, POOL, CUTTER, MARKET, STORAGE }
-enum GoalStep { CATCH, STORE, PROCESS, SELL, UPGRADE, BUILD, COMPLETE }
+enum GoalStep { CATCH, STORE, PROCESS, SELL, UPGRADE, BUILD, NET_TWO, SILVERFISH, STORAGE, EXPAND, STABLE_SALES, COMPLETE }
 enum FishKind { MINNOW, CARP, SILVERFISH }
 
 const GRID_W := 8
@@ -1019,6 +1019,21 @@ func _check_goal_progress() -> void:
 		GoalStep.BUILD:
 			if buildings_built_total >= 1:
 				_complete_goal("First expansion built. Phase 1 loop is online.", 10)
+		GoalStep.NET_TWO:
+			if net_level >= 2:
+				_complete_goal("Net 2 is ready. Better fish can enter the loop.", 10)
+		GoalStep.SILVERFISH:
+			if int(fish_caught_by_kind[FishKind.SILVERFISH]) >= 1:
+				_complete_goal("Silverfish discovered. Storage plans are unlocked.", 12)
+		GoalStep.STORAGE:
+			if _building_count(BuildKind.STORAGE) >= 1:
+				_complete_goal("Storage built. The fishery can hold more meat.", 12)
+		GoalStep.EXPAND:
+			if land_expanded_total >= 1:
+				_complete_goal("New land claimed. The base has room to grow.", 15)
+		GoalStep.STABLE_SALES:
+			if meat_sold_total >= 14:
+				_complete_goal("Steady sales proven. The early fishery is established.", 20)
 
 
 func _complete_goal(message: String, reward: int) -> void:
@@ -1042,16 +1057,18 @@ func _goal_text() -> String:
 			return "Goal: Buy any upgrade. " + _progress_text(upgrades_bought_total, 1)
 		GoalStep.BUILD:
 			return "Goal: Build one extra pool, cutter, or market. " + _progress_text(buildings_built_total, 1)
+		GoalStep.NET_TWO:
+			return "Goal: Upgrade Net to level 2. " + _progress_text(net_level, 2)
+		GoalStep.SILVERFISH:
+			return "Goal: Catch 1 silverfish. " + _progress_text(int(fish_caught_by_kind[FishKind.SILVERFISH]), 1)
+		GoalStep.STORAGE:
+			return "Goal: Build 1 Storage. " + _progress_text(_building_count(BuildKind.STORAGE), 1)
+		GoalStep.EXPAND:
+			return "Goal: Expand 1 edge tile into land. " + _progress_text(land_expanded_total, 1)
+		GoalStep.STABLE_SALES:
+			return "Goal: Sell 14 total meat to prove steady demand. " + _progress_text(meat_sold_total, 14)
 		_:
-			if net_level < 2:
-				return "Progression: upgrade Net to level 2 to unlock silverfish."
-			if int(fish_caught_by_kind[FishKind.SILVERFISH]) <= 0:
-				return "Progression: catch a silverfish. It yields 3 meat."
-			if _building_count(BuildKind.STORAGE) <= 0:
-				return "Progression: build Storage to handle higher-yield fish."
-			if land_expanded_total <= 0:
-				return "Progression: expand one edge tile to grow the base."
-			return "Progression online: land expansion is active. Next milestone is the 30-minute goal chain."
+			return "First 30-minute chain complete. Next milestone can add a broader unlock tree."
 
 
 func _unlock_text() -> String:

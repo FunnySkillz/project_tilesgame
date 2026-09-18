@@ -24,6 +24,7 @@ The current prototype is intentionally small:
 - Net level 2 unlocks silverfish, and the goal line now points toward that progression step
 - catching silverfish unlocks Storage, which increases meat capacity
 - building Storage unlocks Expand, which buys edge ground into buildable land
+- the goal chain now carries the player through the first progression arc into steady sales
 
 ## Design Docs
 
