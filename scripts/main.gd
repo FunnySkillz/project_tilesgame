@@ -2,7 +2,7 @@ extends Control
 
 enum TileKind { WATER, LAND, ROAD, EXPANSION }
 enum BuildKind { NONE, POOL, CUTTER, MARKET, STORAGE, SMOKER }
-enum GoalStep { CATCH, STORE, PROCESS, SELL, UPGRADE, BUILD, NET_TWO, SILVERFISH, STORAGE, EXPAND, STABLE_SALES, SMOKER, SMOKED_SALE, COOK_SALE, MERCHANT_ORDER, COMPLETE }
+enum GoalStep { CATCH, STORE, PROCESS, SELL, UPGRADE, BUILD, NET_TWO, SILVERFISH, STORAGE, EXPAND, STABLE_SALES, SMOKER, SMOKED_SALE, COOK_SALE, MERCHANT_ORDER, DOCK_ORDER, COMPLETE }
 enum FishKind { MINNOW, CARP, SILVERFISH }
 enum BuyerKind { VILLAGER, COOK, MERCHANT }
 
@@ -45,6 +45,9 @@ const SMOKED_MEAT_PRICE := 14
 const COOK_SMOKED_MEAT_PRICE := 18
 const MERCHANT_BULK_SIZE := 3
 const MERCHANT_BULK_BONUS := 5
+const DOCK_ORDER_SECONDS := 50.0
+const DOCK_ORDER_COOLDOWN_SECONDS := 8.0
+const DOCK_ORDER_BONUS := 24
 const SMOKER_INPUT_MEAT := 2
 const SMOKER_OUTPUT_SMOKED := 1
 
@@ -75,6 +78,15 @@ var meat_sold_total := 0
 var smoked_meat_sold_total := 0
 var buyers_served_by_kind: Array = [0, 0, 0]
 var merchant_orders_completed_total := 0
+var dock_orders_completed_total := 0
+var dock_order_active := false
+var dock_order_name := ""
+var dock_order_need_meat := 0
+var dock_order_need_smoked := 0
+var dock_order_delivered_meat := 0
+var dock_order_delivered_smoked := 0
+var dock_order_timer := 0.0
+var dock_order_cooldown := 2.0
 var upgrades_bought_total := 0
 var buildings_built_total := 0
 var storage_unlocked := false
@@ -113,6 +125,7 @@ func _process(delta: float) -> void:
 	_tick_workers(delta)
 	_tick_cutters(delta)
 	_tick_smokers(delta)
+	_tick_dock_order(delta)
 	_tick_customers(delta)
 	_tick_feedback_popups(delta)
 	_check_goal_progress()
@@ -137,6 +150,7 @@ func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), Color("#17212b"))
 	_draw_grid()
 	_draw_people()
+	_draw_dock_order_board()
 	_draw_footer_hint()
 	_draw_feedback_popups()
 
@@ -691,6 +705,24 @@ func _tick_smokers(delta: float) -> void:
 		_add_popup("+" + str(SMOKER_OUTPUT_SMOKED) + " smoked", _building_center(BuildKind.SMOKER), Color("#e8a35c"))
 
 
+func _tick_dock_order(delta: float) -> void:
+	if not _is_dock_order_unlocked():
+		return
+
+	if dock_order_active:
+		dock_order_timer -= delta
+		if dock_order_timer <= 0.0:
+			status_text = "The dock order expired. A new buyer will post another request soon."
+			_add_popup("Order expired", _order_board_center(), Color("#ff8f7a"))
+			_clear_dock_order()
+			dock_order_cooldown = DOCK_ORDER_COOLDOWN_SECONDS
+		return
+
+	dock_order_cooldown -= delta
+	if dock_order_cooldown <= 0.0:
+		_post_new_dock_order()
+
+
 func _tick_customers(delta: float) -> void:
 	customer_timer -= delta
 	if customer_timer <= 0.0:
@@ -708,7 +740,8 @@ func _tick_customers(delta: float) -> void:
 
 	var sales_capacity := _market_sales_capacity()
 	var waiting_indices := _waiting_customer_indices()
-	if sales_capacity <= 0 or waiting_indices.is_empty() or (meat <= 0 and smoked_meat <= 0):
+	var can_fill_order := _can_fill_dock_order()
+	if sales_capacity <= 0 or (waiting_indices.is_empty() and not can_fill_order) or (meat <= 0 and smoked_meat <= 0):
 		_update_customer_counts()
 		return
 
@@ -718,6 +751,8 @@ func _tick_customers(delta: float) -> void:
 	var buyers_helped := 0
 	var buyers_completed := 0
 	var sale_units := 0
+	var order_units_sold := 0
+	var dock_order_completed := false
 	for customer_index in waiting_indices:
 		if sale_units >= sales_capacity:
 			break
@@ -746,6 +781,17 @@ func _tick_customers(delta: float) -> void:
 			buyers_completed += 1
 		customer_agents[int(customer_index)] = customer
 
+	if sale_units < sales_capacity and _can_fill_dock_order():
+		var order_sale := _sell_to_dock_order(sales_capacity - sale_units)
+		var order_units: int = int(order_sale["units"])
+		if order_units > 0:
+			sold_meat += int(order_sale["meat"])
+			sold_smoked += int(order_sale["smoked"])
+			earned += int(order_sale["earned"])
+			sale_units += order_units
+			order_units_sold += order_units
+			dock_order_completed = bool(order_sale["completed"])
+
 	if earned <= 0:
 		_update_customer_counts()
 		return
@@ -756,9 +802,18 @@ func _tick_customers(delta: float) -> void:
 		sold_parts.append(str(sold_smoked) + " smoked meat")
 	if sold_meat > 0:
 		sold_parts.append(str(sold_meat) + " meat")
-	status_text = "Sold " + " and ".join(sold_parts) + " to " + str(buyers_helped) + " buyers for $" + str(earned) + "."
+	var sale_targets: Array = []
+	if buyers_helped > 0:
+		sale_targets.append(str(buyers_helped) + " buyers")
+	if order_units_sold > 0:
+		sale_targets.append("the dock order")
+	status_text = "Sold " + " and ".join(sold_parts) + " to " + " and ".join(sale_targets) + " for $" + str(earned) + "."
 	if buyers_completed > 0:
 		status_text += " Completed " + str(buyers_completed) + " order" + ("s." if buyers_completed > 1 else ".")
+	if dock_order_completed:
+		status_text += " Dock order complete."
+	if dock_order_active:
+		status_text += " Dock order: " + _dock_order_progress_text() + "."
 	_add_popup("+$" + str(earned), _building_center(BuildKind.MARKET), Color("#b7ef8a"))
 	_update_customer_counts()
 
@@ -810,6 +865,132 @@ func _next_customer_seconds() -> float:
 	if _is_smoker_unlocked():
 		pull += 0.2
 	return max(1.15, randf_range(2.4, 4.1) - pull)
+
+
+func _is_dock_order_unlocked() -> bool:
+	return goal_step >= GoalStep.DOCK_ORDER
+
+
+func _post_new_dock_order() -> void:
+	var roll := randf()
+	dock_order_active = true
+	dock_order_delivered_meat = 0
+	dock_order_delivered_smoked = 0
+	dock_order_timer = DOCK_ORDER_SECONDS
+	dock_order_cooldown = DOCK_ORDER_COOLDOWN_SECONDS
+
+	if _building_count(BuildKind.SMOKER) <= 0:
+		dock_order_name = "Camp Stew"
+		dock_order_need_meat = 6
+		dock_order_need_smoked = 0
+	elif roll < 0.40:
+		dock_order_name = "Dock Lunch"
+		dock_order_need_meat = 6
+		dock_order_need_smoked = 0
+	elif roll < 0.72:
+		dock_order_name = "Smokehouse Crate"
+		dock_order_need_meat = 0
+		dock_order_need_smoked = 3
+	else:
+		dock_order_name = "Harbor Feast"
+		dock_order_need_meat = 4
+		dock_order_need_smoked = 2
+
+	status_text = "New dock order posted: " + _dock_order_progress_text() + "."
+	_add_popup("New order", _order_board_center(), Color("#f2d16b"))
+
+
+func _clear_dock_order() -> void:
+	dock_order_active = false
+	dock_order_name = ""
+	dock_order_need_meat = 0
+	dock_order_need_smoked = 0
+	dock_order_delivered_meat = 0
+	dock_order_delivered_smoked = 0
+	dock_order_timer = 0.0
+
+
+func _can_fill_dock_order() -> bool:
+	if not dock_order_active:
+		return false
+	if _dock_order_remaining_meat() > 0 and meat > 0:
+		return true
+	if _dock_order_remaining_smoked() > 0 and smoked_meat > 0:
+		return true
+	return false
+
+
+func _sell_to_dock_order(capacity: int) -> Dictionary:
+	var result := {
+		"meat": 0,
+		"smoked": 0,
+		"earned": 0,
+		"units": 0,
+		"completed": false
+	}
+
+	while capacity > 0 and _can_fill_dock_order():
+		if _dock_order_remaining_smoked() > 0 and smoked_meat > 0:
+			smoked_meat -= 1
+			dock_order_delivered_smoked += 1
+			smoked_meat_sold_total += 1
+			result["smoked"] = int(result["smoked"]) + 1
+			result["earned"] = int(result["earned"]) + SMOKED_MEAT_PRICE
+			result["units"] = int(result["units"]) + 1
+		elif _dock_order_remaining_meat() > 0 and meat > 0:
+			meat -= 1
+			dock_order_delivered_meat += 1
+			meat_sold_total += 1
+			result["meat"] = int(result["meat"]) + 1
+			result["earned"] = int(result["earned"]) + MEAT_PRICE
+			result["units"] = int(result["units"]) + 1
+		else:
+			break
+		capacity -= 1
+
+	if dock_order_active and _dock_order_is_complete():
+		result["earned"] = int(result["earned"]) + DOCK_ORDER_BONUS
+		result["completed"] = true
+		dock_orders_completed_total += 1
+		var completed_name := dock_order_name
+		_clear_dock_order()
+		dock_order_cooldown = DOCK_ORDER_COOLDOWN_SECONDS
+		status_text = completed_name + " completed. Dock order bonus: $" + str(DOCK_ORDER_BONUS) + "."
+		_add_popup("Order +$" + str(DOCK_ORDER_BONUS), _order_board_center(), Color("#b7ef8a"))
+
+	return result
+
+
+func _dock_order_remaining_meat() -> int:
+	return max(0, dock_order_need_meat - dock_order_delivered_meat)
+
+
+func _dock_order_remaining_smoked() -> int:
+	return max(0, dock_order_need_smoked - dock_order_delivered_smoked)
+
+
+func _dock_order_is_complete() -> bool:
+	return _dock_order_remaining_meat() <= 0 and _dock_order_remaining_smoked() <= 0
+
+
+func _dock_order_progress_text() -> String:
+	if not dock_order_active:
+		return "waiting for a new dock order"
+
+	var parts: Array = []
+	if dock_order_need_meat > 0:
+		parts.append("M " + str(dock_order_delivered_meat) + "/" + str(dock_order_need_meat))
+	if dock_order_need_smoked > 0:
+		parts.append("S " + str(dock_order_delivered_smoked) + "/" + str(dock_order_need_smoked))
+	return dock_order_name + " " + " ".join(parts) + " " + str(max(0, int(ceil(dock_order_timer)))) + "s"
+
+
+func _order_board_cell() -> Vector2i:
+	return Vector2i(GRID_W - 2, GRID_H - 1)
+
+
+func _order_board_center() -> Vector2:
+	return _cell_rect(_order_board_cell()).get_center()
 
 
 func _random_buyer_kind() -> int:
@@ -1384,7 +1565,7 @@ func _worker_assignment_hint(cell: Vector2i) -> String:
 		BuildKind.CUTTER:
 			return "Assigned cutter workers speed up processing."
 		BuildKind.MARKET:
-			return "Assigned market workers serve more buyers and attract customers faster."
+			return "Assigned market workers serve more buyers and attract buyers faster."
 		BuildKind.STORAGE:
 			return "Storage workers are standing by for future hauling jobs."
 		BuildKind.SMOKER:
@@ -1645,7 +1826,7 @@ func _check_goal_progress() -> void:
 				_complete_goal("The cutter is turning fish into sellable meat.", 5)
 		GoalStep.SELL:
 			if meat_sold_total >= 2:
-				_complete_goal("Customers are buying. The loop works.", 6)
+				_complete_goal("Buyers are buying. The loop works.", 6)
 		GoalStep.UPGRADE:
 			if upgrades_bought_total >= 1:
 				_complete_goal("First upgrade bought. The fishery is getting faster.", 8)
@@ -1679,6 +1860,9 @@ func _check_goal_progress() -> void:
 		GoalStep.MERCHANT_ORDER:
 			if merchant_orders_completed_total >= 1:
 				_complete_goal("Merchant bulk order complete. The dock trade is alive.", 22)
+		GoalStep.DOCK_ORDER:
+			if dock_orders_completed_total >= 1:
+				_complete_goal("Dock order fulfilled. The trade board is working.", 24)
 
 
 func _complete_goal(message: String, reward: int) -> void:
@@ -1720,8 +1904,10 @@ func _goal_text() -> String:
 			return "Goal: Serve 1 cook. Cooks want smoked meat. " + _progress_text(int(buyers_served_by_kind[BuyerKind.COOK]), 1)
 		GoalStep.MERCHANT_ORDER:
 			return "Goal: Complete 1 merchant bulk order. " + _progress_text(merchant_orders_completed_total, 1)
+		GoalStep.DOCK_ORDER:
+			return "Goal: Complete 1 dock order from the road board. " + _progress_text(dock_orders_completed_total, 1)
 		_:
-			return "Living trade branch complete. Next milestone: order board, plaza paths, or cold."
+			return "Living trade branch complete. Next milestone: plaza paths, richer stalls, or cold."
 
 
 func _unlock_text() -> String:
@@ -1739,7 +1925,11 @@ func _unlock_text() -> String:
 		return "Unlocks: buyer wants appear above people. M=meat, S=smoked, x3=bulk."
 	if goal_step < GoalStep.MERCHANT_ORDER:
 		return "Unlocks: cooks pay $" + str(COOK_SMOKED_MEAT_PRICE) + " for smoked meat."
-	return "Unlocks: merchants buy bulk orders and pay $" + str(MERCHANT_BULK_BONUS) + " completion bonuses."
+	if goal_step < GoalStep.DOCK_ORDER:
+		return "Unlocks: merchants buy bulk orders and pay $" + str(MERCHANT_BULK_BONUS) + " completion bonuses."
+	if dock_order_active:
+		return "Dock order: " + _dock_order_progress_text() + ". Markets fill it after serving buyers."
+	return "Dock order board: waiting " + str(max(0, int(ceil(dock_order_cooldown)))) + "s for the next posted order."
 
 
 func _progress_text(current: int, target: int) -> String:
@@ -1943,6 +2133,27 @@ func _draw_people() -> void:
 		_draw_person(_agent_screen_pos(worker_pos), Color("#f2d16b"), i == selected_worker_index, "W")
 
 
+func _draw_dock_order_board() -> void:
+	if not _is_dock_order_unlocked():
+		return
+
+	var rect := _cell_rect(_order_board_cell()).grow(-tile_px * 0.12)
+	var font := get_theme_default_font()
+	draw_rect(rect, Color("#2c2722"))
+	draw_rect(rect, Color("#f0d597"), false, 2.0)
+	draw_line(rect.position + Vector2(rect.size.x * 0.5, rect.size.y), rect.position + Vector2(rect.size.x * 0.5, rect.size.y + tile_px * 0.14), Color("#2c2722"), 3.0)
+	draw_string(font, rect.position + Vector2(0, 13), "ORD", HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, 12, Color("#f0d597"))
+	var label := "wait"
+	if dock_order_active:
+		var parts: Array = []
+		if dock_order_need_meat > 0:
+			parts.append("M" + str(dock_order_delivered_meat) + "/" + str(dock_order_need_meat))
+		if dock_order_need_smoked > 0:
+			parts.append("S" + str(dock_order_delivered_smoked) + "/" + str(dock_order_need_smoked))
+		label = " ".join(parts)
+	draw_string(font, rect.position + Vector2(0, rect.size.y - 5), label, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, 10, Color("#f5efe1"))
+
+
 func _agent_screen_pos(pos: Vector2) -> Vector2:
 	return grid_rect.position + Vector2((pos.x + 0.5) * tile_px, (pos.y + 0.5) * tile_px)
 
@@ -2071,6 +2282,11 @@ func _cell_rect(cell: Vector2i) -> Rect2:
 func _selected_tile_text() -> String:
 	if selected_cell.x < 0:
 		return "Tile: tap water, people, pools, cutters, or markets to inspect them."
+
+	if _is_dock_order_unlocked() and selected_cell == _order_board_cell():
+		if dock_order_active:
+			return "Order board: " + _dock_order_progress_text() + ". Markets deliver spare sales capacity into this order."
+		return "Order board: waiting for the next dock request."
 
 	var worker_index := _worker_index_at_cell(selected_cell)
 	if worker_index >= 0:

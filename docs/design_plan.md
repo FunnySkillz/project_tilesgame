@@ -283,6 +283,8 @@ Current prototype buyer rules:
 - cooks want smoked meat and pay a premium for it
 - merchants want several goods and can be served over multiple sale ticks
 - visible want bubbles show what each buyer expects before they leave
+- the dock order board posts timed larger orders after merchant trade is proven
+- markets use spare sales capacity to fill dock orders and earn completion bonuses
 
 ### Progression Tracks
 

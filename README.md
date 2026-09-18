@@ -20,6 +20,7 @@ The current prototype is intentionally small:
 - buyers now walk to markets as visible people, wait, buy, and leave
 - villagers, cooks, and merchants have different visible wants
 - cooks pay more for smoked meat, while merchants buy bulk orders
+- a dock order board posts timed larger orders after merchant trade is proven
 - use the People tool to select and assign workers
 - hire more workers with the Hire button
 - workers can auto-fish, staff pools, speed cutters/smokers, and serve more market buyers

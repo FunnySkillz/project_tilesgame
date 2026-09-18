@@ -129,7 +129,7 @@ Implemented:
 
 ## Phase 4: Living Base And Demand
 
-Status: second playable slice complete.
+Status: third playable slice complete.
 
 Goal: make the fishery feel like a busy, interactive place instead of only a resource board.
 
@@ -142,7 +142,7 @@ Needs:
 - [x] worker jobs that affect production
 - [x] richer buyer types and preferences
 - [x] visible buyer wants
-- [ ] trade stalls or order board
+- [x] trade stalls or order board
 - [ ] more expressive worker/buyer animations
 - [ ] clearer paths, docks, and walkable plaza layout
 
@@ -164,12 +164,18 @@ Implemented:
 - cooks pay a premium for smoked meat
 - completed merchant orders pay a small bulk bonus
 - goal text now guides the player through cook and merchant demand
+- dock order board unlocks after the first merchant bulk order
+- road-side order board posts timed larger orders
+- market spare sales capacity fills dock orders after serving buyers
+- dock orders can ask for meat, smoked meat, or mixed goods
+- completing a dock order pays an additional bonus
+- order board has a visible road sign, inspector text, unlock text, and a guided goal
 
 Next:
 
-- add a simple order board or stall system for larger sales moments
 - improve the board shape toward a dock/plaza fishery layout
 - add more expressive worker/buyer animation states
+- add richer stall presentation around markets and the order board
 
 ## Phase 5: Danger
 
