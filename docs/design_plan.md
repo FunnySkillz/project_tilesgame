@@ -197,6 +197,13 @@ Tile types:
 
 Each tile needs clear placement rules. The player should understand why something can or cannot be built there.
 
+Current prototype layout rules:
+
+- dock tiles mark the working shoreline and can hold buildings
+- plaza tiles mark the trade lane and can hold buildings
+- markets gain extra sale capacity from road access and plaza access
+- expansion still turns locked edge ground into buildable land
+
 ### Buildings
 
 Core buildings:

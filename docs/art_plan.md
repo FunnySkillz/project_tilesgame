@@ -22,6 +22,8 @@ Generate or draw a first small texture set after the Phase 2 mechanics are playa
 
 - shallow water tile
 - buildable land tile
+- dock tile
+- plaza tile
 - road tile
 - pool building
 - cutter building
@@ -117,4 +119,4 @@ Phase 2 layout mechanics are readable enough to support a first texture pass, an
 
 Next art milestone:
 
-Generate a small prototype texture pack after the early people-and-demand loop is stable. The first pack should cover water, land, road, expansion ground, pool, cutter, market, storage, smoker, dock order board, worker, buyer, minnow, carp, silverfish, meat, smoked meat, money, crates, lamps, and market props.
+Generate a small prototype texture pack after the early people-and-demand loop is stable. The first pack should cover water, land, dock, plaza, road, expansion ground, pool, cutter, market, storage, smoker, dock order board, worker, buyer, minnow, carp, silverfish, meat, smoked meat, money, crates, lamps, and market props.

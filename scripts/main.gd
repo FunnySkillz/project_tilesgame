@@ -1,6 +1,6 @@
 extends Control
 
-enum TileKind { WATER, LAND, ROAD, EXPANSION }
+enum TileKind { WATER, LAND, DOCK, PLAZA, ROAD, EXPANSION }
 enum BuildKind { NONE, POOL, CUTTER, MARKET, STORAGE, SMOKER }
 enum GoalStep { CATCH, STORE, PROCESS, SELL, UPGRADE, BUILD, NET_TWO, SILVERFISH, STORAGE, EXPAND, STABLE_SALES, SMOKER, SMOKED_SALE, COOK_SALE, MERCHANT_ORDER, DOCK_ORDER, COMPLETE }
 enum FishKind { MINNOW, CARP, SILVERFISH }
@@ -167,6 +167,10 @@ func _init_tiles() -> void:
 				kind = TileKind.ROAD
 			elif x == 0 or x == GRID_W - 1:
 				kind = TileKind.EXPANSION
+			elif y == WATER_ROWS and x <= 5:
+				kind = TileKind.DOCK
+			elif _is_starter_plaza_cell(Vector2i(x, y)):
+				kind = TileKind.PLAZA
 			var fish_kind := _random_fish_kind()
 			var fish_count := randi_range(1, 2) if kind == TileKind.WATER and randf() < 0.45 else 0
 			row.append({
@@ -181,6 +185,40 @@ func _init_tiles() -> void:
 	_set_starter_building(Vector2i(1, 3), BuildKind.POOL)
 	_set_starter_building(Vector2i(2, 3), BuildKind.CUTTER)
 	_set_starter_building(Vector2i(6, 8), BuildKind.MARKET)
+
+
+func _is_starter_plaza_cell(cell: Vector2i) -> bool:
+	if cell.x == 4 and cell.y >= 4 and cell.y <= 8:
+		return true
+	if cell.y == 8 and cell.x >= 4 and cell.x <= 6:
+		return true
+	if cell.y == 7 and cell.x >= 5 and cell.x <= 6:
+		return true
+	return false
+
+
+func _is_buildable_tile_kind(kind: int) -> bool:
+	return kind == TileKind.LAND or kind == TileKind.DOCK or kind == TileKind.PLAZA
+
+
+func _buildable_tile_text() -> String:
+	return "land, dock, or plaza tiles"
+
+
+func _tile_surface_name(kind: int) -> String:
+	match kind:
+		TileKind.DOCK:
+			return "dock"
+		TileKind.PLAZA:
+			return "plaza"
+		TileKind.ROAD:
+			return "road"
+		TileKind.EXPANSION:
+			return "expansion ground"
+		TileKind.WATER:
+			return "water"
+		_:
+			return "land"
 
 
 func _set_starter_building(cell: Vector2i, building: int) -> void:
@@ -259,13 +297,13 @@ func _build_ui() -> void:
 
 	_add_tool_button(actions, TOOL_CATCH, "Catch", "Tap water to collect fish, or tap a pool to deposit carried fish.")
 	_add_tool_button(actions, TOOL_PEOPLE, "People", "Select a worker, then tap water, a building, or land to assign them.")
-	_add_tool_button(actions, TOOL_POOL, "Pool $10", "Build live fish capacity on land.")
-	_add_tool_button(actions, TOOL_CUTTER, "Cutter $15", "Build processing on land.")
-	_add_tool_button(actions, TOOL_MARKET, "Market $20", "Build selling on land.")
+	_add_tool_button(actions, TOOL_POOL, "Pool $10", "Build live fish capacity on a buildable tile.")
+	_add_tool_button(actions, TOOL_CUTTER, "Cutter $15", "Build processing on a buildable tile.")
+	_add_tool_button(actions, TOOL_MARKET, "Market $20", "Build selling on a buildable tile.")
 	_add_tool_button(actions, TOOL_STORAGE, "Storage", "Unlock by catching silverfish. Adds meat storage capacity.")
 	_add_tool_button(actions, TOOL_SMOKER, "Smoker", "Unlock after steady sales. Turns meat into higher-value smoked meat.")
 	_add_tool_button(actions, TOOL_EXPAND, "Expand", "Unlock after building Storage. Converts edge ground into buildable land.")
-	_add_tool_button(actions, TOOL_MOVE, "Move", "Move one building to another land tile.")
+	_add_tool_button(actions, TOOL_MOVE, "Move", "Move one building to another buildable tile.")
 	_add_tool_button(actions, TOOL_REMOVE, "Remove", "Remove a building and recover half its cost.")
 	command_buttons["net"] = _add_command_button(actions, "Net +", "Upgrade net", _upgrade_net)
 	command_buttons["pool"] = _add_command_button(actions, "Pool +", "Upgrade pools", _upgrade_pool)
@@ -423,11 +461,11 @@ func _try_build(cell: Vector2i, building: int, cost: int, label: String) -> void
 		return
 
 	var tile: Dictionary = tiles[cell.y][cell.x]
-	if tile["kind"] != TileKind.LAND:
-		status_text = "Build " + label + " on land tiles."
+	if not _is_buildable_tile_kind(int(tile["kind"])):
+		status_text = "Build " + label + " on " + _buildable_tile_text() + "."
 		return
 	if tile["building"] != BuildKind.NONE:
-		status_text = "This land tile already has a building."
+		status_text = "This tile already has a building."
 		return
 	if money < cost:
 		status_text = "Need $" + str(cost) + " to build a " + label + "."
@@ -466,7 +504,7 @@ func _use_move_tool(cell: Vector2i) -> void:
 	var tile: Dictionary = tiles[cell.y][cell.x]
 	if moving_building == BuildKind.NONE:
 		if tile["building"] == BuildKind.NONE:
-			status_text = "Tap a building first, then tap an empty land tile."
+			status_text = "Tap a building first, then tap an empty buildable tile."
 			return
 		if tile["building"] == BuildKind.POOL and not _can_remove_pool_at(cell):
 			status_text = "Cannot move this pool while it is needed for live fish capacity."
@@ -482,15 +520,15 @@ func _use_move_tool(cell: Vector2i) -> void:
 		move_source_cell = cell
 		tile["building"] = BuildKind.NONE
 		tiles[cell.y][cell.x] = tile
-		status_text = "Moving " + _building_name(moving_building) + ". Tap an empty land tile to place it."
+		status_text = "Moving " + _building_name(moving_building) + ". Tap an empty buildable tile to place it."
 		_add_popup_for_cell(cell, "Move", Color("#f2d16b"))
 		return
 
-	if tile["kind"] != TileKind.LAND:
-		status_text = "Moved buildings must be placed on land."
+	if not _is_buildable_tile_kind(int(tile["kind"])):
+		status_text = "Moved buildings must be placed on " + _buildable_tile_text() + "."
 		return
 	if tile["building"] != BuildKind.NONE:
-		status_text = "That tile is occupied. Pick an empty land tile."
+		status_text = "That tile is occupied. Pick an empty buildable tile."
 		return
 
 	tile["building"] = moving_building
@@ -1392,8 +1430,15 @@ func _market_capacity_at(cell: Vector2i) -> int:
 	var capacity := 1
 	if _has_adjacent_tile_kind(cell, TileKind.ROAD):
 		capacity += 1
+	if _is_plaza_connected(cell):
+		capacity += 1
 	capacity += _worker_count_assigned_to(cell)
 	return capacity
+
+
+func _is_plaza_connected(cell: Vector2i) -> bool:
+	var tile: Dictionary = tiles[cell.y][cell.x]
+	return tile["kind"] == TileKind.PLAZA or _has_adjacent_tile_kind(cell, TileKind.PLAZA)
 
 
 func _random_fish_kind() -> int:
@@ -1558,6 +1603,10 @@ func _worker_assignment_hint(cell: Vector2i) -> String:
 		return "They will catch fish and carry them directly to pools."
 	if tile["kind"] == TileKind.ROAD:
 		return "They will stand by on the road until you assign a job."
+	if tile["building"] == BuildKind.NONE and tile["kind"] == TileKind.DOCK:
+		return "They will stand by on the dock, close to fishing work."
+	if tile["building"] == BuildKind.NONE and tile["kind"] == TileKind.PLAZA:
+		return "They will stand by in the plaza where buyers gather."
 
 	match int(tile["building"]):
 		BuildKind.POOL:
@@ -1740,6 +1789,8 @@ func _building_name(building: int) -> String:
 func _layout_hint_for_building(cell: Vector2i, building: int) -> String:
 	match building:
 		BuildKind.POOL:
+			if tiles[cell.y][cell.x]["kind"] == TileKind.DOCK:
+				return "Dock pools sit right on the working shoreline."
 			if _has_adjacent_tile_kind(cell, TileKind.WATER):
 				return "Water access gives this pool +2 capacity."
 			return "Pools get +2 capacity when touching water."
@@ -1748,9 +1799,13 @@ func _layout_hint_for_building(cell: Vector2i, building: int) -> String:
 				return "Adjacent pool gives this cutter +50% work rate."
 			return "Cutters work faster beside pools."
 		BuildKind.MARKET:
+			if _has_adjacent_tile_kind(cell, TileKind.ROAD) and _is_plaza_connected(cell):
+				return "Road and plaza access give this market strong buyer flow."
+			if _is_plaza_connected(cell):
+				return "Plaza access gives this market +1 sale capacity."
 			if _has_adjacent_tile_kind(cell, TileKind.ROAD):
-				return "Road access lets this market sell twice as fast."
-			return "Markets sell faster beside the road."
+				return "Road access gives this market +1 sale capacity."
+			return "Markets sell faster beside the road or plaza."
 		BuildKind.STORAGE:
 			if _has_adjacent_building(cell, BuildKind.MARKET):
 				return "Adjacent market gives this storage +6 meat capacity."
@@ -2061,6 +2116,10 @@ func _draw_grid() -> void:
 			var fill := Color("#5e6747")
 			if tile["kind"] == TileKind.WATER:
 				fill = Color("#326b82")
+			elif tile["kind"] == TileKind.DOCK:
+				fill = Color("#66503d")
+			elif tile["kind"] == TileKind.PLAZA:
+				fill = Color("#6a6258")
 			elif tile["kind"] == TileKind.ROAD:
 				fill = Color("#504a45")
 			elif tile["kind"] == TileKind.EXPANSION:
@@ -2070,6 +2129,10 @@ func _draw_grid() -> void:
 
 			if tile["kind"] == TileKind.WATER:
 				_draw_water_tile(rect, int(tile["fish"]), int(tile["fish_kind"]))
+			elif tile["kind"] == TileKind.DOCK:
+				_draw_dock_tile(rect, int(tile["building"]))
+			elif tile["kind"] == TileKind.PLAZA:
+				_draw_plaza_tile(rect, int(tile["building"]))
 			elif tile["kind"] == TileKind.ROAD:
 				_draw_road_tile(rect)
 			elif tile["kind"] == TileKind.EXPANSION:
@@ -2098,6 +2161,26 @@ func _draw_road_tile(rect: Rect2) -> void:
 	draw_rect(rect, Color("#504a45"))
 	draw_line(rect.position + Vector2(0, rect.size.y * 0.5), rect.end - Vector2(0, rect.size.y * 0.5), Color("#e8d28d"), 3.0)
 	draw_line(rect.position + Vector2(8, rect.size.y * 0.5), rect.position + Vector2(rect.size.x - 8, rect.size.y * 0.5), Color("#2c2927"), 1.0)
+
+
+func _draw_dock_tile(rect: Rect2, building: int) -> void:
+	draw_rect(rect, Color("#66503d"))
+	for offset in [0.25, 0.5, 0.75]:
+		var x: float = rect.position.x + rect.size.x * float(offset)
+		draw_line(Vector2(x, rect.position.y + 3), Vector2(x, rect.end.y - 3), Color("#2f261f"), 1.5)
+	draw_line(rect.position + Vector2(4, rect.size.y * 0.22), rect.end - Vector2(4, rect.size.y * 0.78), Color("#a17a54"), 2.0)
+	draw_line(rect.position + Vector2(4, rect.size.y * 0.78), rect.end - Vector2(4, rect.size.y * 0.22), Color("#3d3026"), 1.0)
+	if building != BuildKind.NONE:
+		_draw_land_tile(rect, building)
+
+
+func _draw_plaza_tile(rect: Rect2, building: int) -> void:
+	draw_rect(rect, Color("#6a6258"))
+	draw_line(rect.position + Vector2(0, rect.size.y * 0.5), rect.position + Vector2(rect.size.x, rect.size.y * 0.5), Color("#8b8174"), 1.5)
+	draw_line(rect.position + Vector2(rect.size.x * 0.5, 0), rect.position + Vector2(rect.size.x * 0.5, rect.size.y), Color("#514a42"), 1.5)
+	draw_circle(rect.get_center(), 2.5, Color("#c6b99d"))
+	if building != BuildKind.NONE:
+		_draw_land_tile(rect, building)
 
 
 func _draw_expansion_tile(rect: Rect2) -> void:
@@ -2250,11 +2333,11 @@ func _draw_footer_hint() -> void:
 		TOOL_EXPAND:
 			hint = "Expand: tap edge ground to buy one land tile."
 		TOOL_MOVE:
-			hint = "Move: tap a building, then an empty land tile."
+			hint = "Move: tap a building, then an empty buildable tile."
 		TOOL_REMOVE:
 			hint = "Remove: tap a building to recover half its cost."
 		_:
-			hint = "Tap a land tile to place: " + selected_tool
+			hint = "Tap a buildable tile to place: " + selected_tool
 	draw_string(font, grid_rect.position + Vector2(4, grid_rect.size.y + 24), hint, HORIZONTAL_ALIGNMENT_LEFT, grid_rect.size.x, 16, Color("#f5efe1"))
 
 
@@ -2311,7 +2394,7 @@ func _selected_tile_text() -> String:
 		var fish_kind := int(tile["fish_kind"])
 		return "Tile: water with " + str(tile["fish"]) + " " + _fish_plural(fish_kind, int(tile["fish"])) + ". Workers assigned here auto-carry fish to pools."
 	if tile["kind"] == TileKind.ROAD:
-		return "Tile: road. Markets beside roads sell twice as fast."
+		return "Tile: road. Markets beside roads gain +1 sale capacity."
 	if tile["kind"] == TileKind.EXPANSION:
 		if _is_land_expansion_unlocked():
 			return "Tile: expansion ground. Use Expand to buy this land for $" + str(COST_EXPAND) + "."
@@ -2323,7 +2406,7 @@ func _selected_tile_text() -> String:
 		BuildKind.CUTTER:
 			return "Tile: cutter. Rate x" + _format_ratio(_cutter_rate_at(selected_cell)) + "; staff " + str(_worker_count_assigned_to(selected_cell)) + "; faster beside pools."
 		BuildKind.MARKET:
-			return "Tile: market. Sales " + str(_market_capacity_at(selected_cell)) + "/tick; staff " + str(_worker_count_assigned_to(selected_cell)) + "; road access doubles it."
+			return "Tile: market. Sales " + str(_market_capacity_at(selected_cell)) + "/tick; staff " + str(_worker_count_assigned_to(selected_cell)) + "; road and plaza access each help flow."
 		BuildKind.STORAGE:
 			return "Tile: storage. Adds " + str(_storage_capacity_at(selected_cell)) + " meat capacity and smoked goods room; better beside markets."
 		BuildKind.SMOKER:
@@ -2334,7 +2417,7 @@ func _selected_tile_text() -> String:
 				options += ", storage"
 			if _is_smoker_unlocked():
 				options += ", smoker"
-			return "Tile: open land. Build " + options + " here."
+			return "Tile: open " + _tile_surface_name(int(tile["kind"])) + ". Build " + options + " here."
 
 
 func _building_label(building: int) -> String:

@@ -15,7 +15,7 @@ Coldwater Catch is a portrait-first tile game about building a rough fishery on 
 The first playable version focuses only on the loop:
 
 - water tiles spawn fish
-- land tiles accept buildings
+- land, dock, and plaza tiles accept buildings
 - pools increase live fish capacity
 - cutters turn live fish into meat
 - markets sell meat to waiting buyers
@@ -23,6 +23,7 @@ The first playable version focuses only on the loop:
 - villagers, cooks, and merchants ask for different goods
 - visible buyer wants make meat, smoked meat, and bulk selling distinct
 - dock orders create larger timed selling moments
+- dock and plaza surfaces make the base read like a working waterfront
 - workers can be hired, moved, and assigned to jobs
 - storage increases processed-goods capacity
 - edge expansion adds buildable land

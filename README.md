@@ -10,13 +10,15 @@ The current prototype is intentionally small:
 
 - tap water with the Catch tool to collect fish
 - a starter pool, cutter, and market are already placed
-- build extra pools, cutters, and markets on land
+- build extra pools, cutters, and markets on buildable land, dock, and plaza tiles
+- dock and plaza tiles make the base read like a working wharf
 - tap a pool with Catch selected to deposit carried fish
 - cutters automatically process live fish into meat
 - markets automatically serve waiting buyers
 - follow the goal line to complete the Phase 1 loop
 - use Move and Remove to improve your tile layout
 - pools work better beside water, cutters work better beside pools, markets work better beside roads
+- markets get extra flow from plaza access too
 - buyers now walk to markets as visible people, wait, buy, and leave
 - villagers, cooks, and merchants have different visible wants
 - cooks pay more for smoked meat, while merchants buy bulk orders

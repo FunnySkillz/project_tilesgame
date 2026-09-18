@@ -129,7 +129,7 @@ Implemented:
 
 ## Phase 4: Living Base And Demand
 
-Status: third playable slice complete.
+Status: fourth playable slice complete.
 
 Goal: make the fishery feel like a busy, interactive place instead of only a resource board.
 
@@ -144,7 +144,7 @@ Needs:
 - [x] visible buyer wants
 - [x] trade stalls or order board
 - [ ] more expressive worker/buyer animations
-- [ ] clearer paths, docks, and walkable plaza layout
+- [x] clearer paths, docks, and walkable plaza layout
 
 Implemented:
 
@@ -170,12 +170,19 @@ Implemented:
 - dock orders can ask for meat, smoked meat, or mixed goods
 - completing a dock order pays an additional bonus
 - order board has a visible road sign, inspector text, unlock text, and a guided goal
+- starting board now has dock tiles along the working shoreline
+- starting board now has plaza tiles connecting the trade lane, market, and order board
+- land, dock, and plaza are all buildable surfaces
+- dock and plaza tiles have distinct placeholder visuals
+- starter pool and cutter now sit on the dock, while the starter market sits on the plaza
+- markets gain extra sale capacity from plaza access as well as road access
+- build, move, footer, inspector, and layout hint text now describe buildable surfaces instead of only land
 
 Next:
 
-- improve the board shape toward a dock/plaza fishery layout
 - add more expressive worker/buyer animation states
 - add richer stall presentation around markets and the order board
+- consider a first texture pass for dock/plaza readability
 
 ## Phase 5: Danger
 
