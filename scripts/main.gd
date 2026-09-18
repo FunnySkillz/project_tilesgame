@@ -1,7 +1,7 @@
 extends Control
 
 enum TileKind { WATER, LAND, ROAD }
-enum BuildKind { NONE, POOL, CUTTER, MARKET }
+enum BuildKind { NONE, POOL, CUTTER, MARKET, STORAGE }
 enum GoalStep { CATCH, STORE, PROCESS, SELL, UPGRADE, BUILD, COMPLETE }
 enum FishKind { MINNOW, CARP, SILVERFISH }
 
@@ -14,12 +14,14 @@ const TOOL_CATCH := "catch"
 const TOOL_POOL := "pool"
 const TOOL_CUTTER := "cutter"
 const TOOL_MARKET := "market"
+const TOOL_STORAGE := "storage"
 const TOOL_MOVE := "move"
 const TOOL_REMOVE := "remove"
 
 const COST_POOL := 10
 const COST_CUTTER := 15
 const COST_MARKET := 20
+const COST_STORAGE := 25
 
 const CUSTOMER_PATIENCE_SECONDS := 10.0
 const MARKET_SELL_SECONDS := 1.25
@@ -48,6 +50,7 @@ var meat_processed_total := 0
 var meat_sold_total := 0
 var upgrades_bought_total := 0
 var buildings_built_total := 0
+var storage_unlocked := false
 
 var grid_rect := Rect2()
 var tile_px := 48.0
@@ -57,6 +60,7 @@ var move_source_cell := Vector2i(-1, -1)
 var feedback_popups: Array = []
 var hud_label: Label
 var goal_label: Label
+var unlock_label: Label
 var inspector_label: Label
 var status_label: Label
 var tool_buttons: Dictionary = {}
@@ -162,6 +166,11 @@ func _build_ui() -> void:
 	goal_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	header_box.add_child(goal_label)
 
+	unlock_label = Label.new()
+	unlock_label.add_theme_font_size_override("font_size", 14)
+	unlock_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	header_box.add_child(unlock_label)
+
 	var spacer := Control.new()
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -195,6 +204,7 @@ func _build_ui() -> void:
 	_add_tool_button(actions, TOOL_POOL, "Pool $10", "Build live fish capacity on land.")
 	_add_tool_button(actions, TOOL_CUTTER, "Cutter $15", "Build processing on land.")
 	_add_tool_button(actions, TOOL_MARKET, "Market $20", "Build selling on land.")
+	_add_tool_button(actions, TOOL_STORAGE, "Storage", "Unlock by catching silverfish. Adds meat storage capacity.")
 	_add_tool_button(actions, TOOL_MOVE, "Move", "Move one building to another land tile.")
 	_add_tool_button(actions, TOOL_REMOVE, "Remove", "Remove a building and recover half its cost.")
 	command_buttons["net"] = _add_command_button(actions, "Net +", "Upgrade net", _upgrade_net)
@@ -212,6 +222,10 @@ func _add_tool_button(parent: Control, tool: String, text: String, tooltip: Stri
 	button.pressed.connect(func() -> void:
 		if tool != TOOL_MOVE:
 			_cancel_move_if_needed()
+		if not _is_tool_unlocked(tool):
+			status_text = _tool_locked_reason(tool)
+			_update_tool_buttons()
+			return
 		selected_tool = tool
 		var cost := _tool_cost(tool)
 		if cost > 0 and money < cost:
@@ -264,6 +278,8 @@ func _try_handle_tap(position: Vector2) -> void:
 			_try_build(cell, BuildKind.CUTTER, COST_CUTTER, "cutter")
 		TOOL_MARKET:
 			_try_build(cell, BuildKind.MARKET, COST_MARKET, "market")
+		TOOL_STORAGE:
+			_try_build(cell, BuildKind.STORAGE, COST_STORAGE, "storage")
 		TOOL_MOVE:
 			_use_move_tool(cell)
 		TOOL_REMOVE:
@@ -287,7 +303,7 @@ func _use_catch_tool(cell: Vector2i) -> void:
 		_add_fish_to_stock(carried_fish_stock, fish_kind, caught)
 		fish_caught_total += caught
 		_add_fish_to_stock(fish_caught_by_kind, fish_kind, caught)
-		status_text = "Caught " + str(caught) + " " + _fish_plural(fish_kind, caught) + ". Tap a pool to store them."
+		status_text = "Caught " + str(caught) + " " + _fish_plural(fish_kind, caught) + ". Tap a pool to store them." + _maybe_unlock_storage(fish_kind)
 		_add_popup_for_cell(cell, "+" + str(caught) + " " + _fish_name(fish_kind), _fish_color(fish_kind))
 		return
 
@@ -311,6 +327,10 @@ func _use_catch_tool(cell: Vector2i) -> void:
 
 
 func _try_build(cell: Vector2i, building: int, cost: int, label: String) -> void:
+	if not _is_building_unlocked(building):
+		status_text = _building_locked_reason(building)
+		return
+
 	var tile: Dictionary = tiles[cell.y][cell.x]
 	if tile["kind"] != TileKind.LAND:
 		status_text = "Build " + label + " on land tiles."
@@ -338,6 +358,9 @@ func _use_move_tool(cell: Vector2i) -> void:
 			return
 		if tile["building"] == BuildKind.POOL and not _can_remove_pool_at(cell):
 			status_text = "Cannot move this pool while it is needed for live fish capacity."
+			return
+		if tile["building"] == BuildKind.STORAGE and not _can_remove_storage_at(cell):
+			status_text = "Cannot move this storage while it is needed for meat capacity."
 			return
 
 		moving_building = int(tile["building"])
@@ -371,6 +394,9 @@ func _use_remove_tool(cell: Vector2i) -> void:
 		return
 	if building == BuildKind.POOL and not _can_remove_pool_at(cell):
 		status_text = "Cannot remove this pool while it is needed for live fish capacity."
+		return
+	if building == BuildKind.STORAGE and not _can_remove_storage_at(cell):
+		status_text = "Cannot remove this storage while it is needed for meat capacity."
 		return
 
 	var refund := int(floor(float(_building_cost(building)) * 0.5))
@@ -441,7 +467,7 @@ func _tick_cutters(delta: float) -> void:
 		cutter_progress = 0.0
 		return
 	if meat >= _meat_capacity():
-		status_text = "Meat storage is full. Build or move markets near roads to sell faster."
+		status_text = "Meat storage is full. Build storage or move markets near roads to sell faster."
 		return
 
 	var required: float = _cutter_required_time()
@@ -452,7 +478,7 @@ func _tick_cutters(delta: float) -> void:
 		var produced := _fish_meat_yield(fish_kind) + int(cutter_level >= 3)
 		if meat + produced > _meat_capacity():
 			_add_fish_to_stock(live_fish_stock, fish_kind, 1)
-			status_text = "Meat storage is full. Markets create more storage and sell faster near roads."
+			status_text = "Meat storage is full. Storage buildings create more room."
 			break
 		cutter_progress -= required
 		meat += produced
@@ -550,7 +576,37 @@ func _can_remove_pool_at(cell: Vector2i) -> bool:
 
 
 func _meat_capacity() -> int:
-	return 18 + _building_count(BuildKind.MARKET) * 6 + cutter_level * 2
+	var capacity := 18 + _building_count(BuildKind.MARKET) * 6 + cutter_level * 2
+	for y in GRID_H:
+		for x in GRID_W:
+			var tile: Dictionary = tiles[y][x]
+			if tile["building"] == BuildKind.STORAGE:
+				capacity += _storage_capacity_at(Vector2i(x, y))
+	return capacity
+
+
+func _meat_capacity_without(cell_to_exclude: Vector2i) -> int:
+	var capacity := 18 + _building_count(BuildKind.MARKET) * 6 + cutter_level * 2
+	for y in GRID_H:
+		for x in GRID_W:
+			var cell := Vector2i(x, y)
+			if cell == cell_to_exclude:
+				continue
+			var tile: Dictionary = tiles[y][x]
+			if tile["building"] == BuildKind.STORAGE:
+				capacity += _storage_capacity_at(cell)
+	return capacity
+
+
+func _can_remove_storage_at(cell: Vector2i) -> bool:
+	return meat <= _meat_capacity_without(cell)
+
+
+func _storage_capacity_at(cell: Vector2i) -> int:
+	var capacity := 14
+	if _has_adjacent_building(cell, BuildKind.MARKET):
+		capacity += 6
+	return capacity
 
 
 func _cutter_required_time() -> float:
@@ -727,6 +783,8 @@ func _building_cost(building: int) -> int:
 			return COST_CUTTER
 		BuildKind.MARKET:
 			return COST_MARKET
+		BuildKind.STORAGE:
+			return COST_STORAGE
 		_:
 			return 0
 
@@ -739,8 +797,67 @@ func _tool_cost(tool: String) -> int:
 			return COST_CUTTER
 		TOOL_MARKET:
 			return COST_MARKET
+		TOOL_STORAGE:
+			return COST_STORAGE
 		_:
 			return 0
+
+
+func _tool_label(tool: String) -> String:
+	match tool:
+		TOOL_CATCH:
+			return "Catch"
+		TOOL_POOL:
+			return "Pool $" + str(COST_POOL)
+		TOOL_CUTTER:
+			return "Cutter $" + str(COST_CUTTER)
+		TOOL_MARKET:
+			return "Market $" + str(COST_MARKET)
+		TOOL_STORAGE:
+			return "Storage $" + str(COST_STORAGE) if _is_tool_unlocked(tool) else "Storage L"
+		TOOL_MOVE:
+			return "Move"
+		TOOL_REMOVE:
+			return "Remove"
+		_:
+			return tool
+
+
+func _is_tool_unlocked(tool: String) -> bool:
+	if tool == TOOL_STORAGE:
+		return _is_storage_unlocked()
+	return true
+
+
+func _tool_locked_reason(tool: String) -> String:
+	if tool == TOOL_STORAGE:
+		return "Storage is locked. Catch a silverfish after upgrading the net to level 2."
+	return "This tool is locked."
+
+
+func _is_building_unlocked(building: int) -> bool:
+	if building == BuildKind.STORAGE:
+		return _is_storage_unlocked()
+	return true
+
+
+func _building_locked_reason(building: int) -> String:
+	if building == BuildKind.STORAGE:
+		return "Storage is locked. Catch a silverfish first."
+	return "This building is locked."
+
+
+func _is_storage_unlocked() -> bool:
+	return storage_unlocked or int(fish_caught_by_kind[FishKind.SILVERFISH]) > 0
+
+
+func _maybe_unlock_storage(fish_kind: int) -> String:
+	if fish_kind != FishKind.SILVERFISH or storage_unlocked:
+		return ""
+
+	storage_unlocked = true
+	_add_popup("Storage unlocked", grid_rect.position + Vector2(grid_rect.size.x * 0.5, 46.0), Color("#b7ef8a"))
+	return " Storage unlocked."
 
 
 func _net_upgrade_cost() -> int:
@@ -777,6 +894,8 @@ func _building_name(building: int) -> String:
 			return "cutter"
 		BuildKind.MARKET:
 			return "market"
+		BuildKind.STORAGE:
+			return "storage"
 		_:
 			return "building"
 
@@ -795,6 +914,10 @@ func _layout_hint_for_building(cell: Vector2i, building: int) -> String:
 			if _has_adjacent_tile_kind(cell, TileKind.ROAD):
 				return "Road access lets this market sell twice as fast."
 			return "Markets sell faster beside the road."
+		BuildKind.STORAGE:
+			if _has_adjacent_building(cell, BuildKind.MARKET):
+				return "Adjacent market gives this storage +6 meat capacity."
+			return "Storage gets +6 capacity beside markets."
 		_:
 			return ""
 
@@ -883,7 +1006,17 @@ func _goal_text() -> String:
 				return "Progression: upgrade Net to level 2 to unlock silverfish."
 			if int(fish_caught_by_kind[FishKind.SILVERFISH]) <= 0:
 				return "Progression: catch a silverfish. It yields 3 meat."
-			return "Progression online: fish variety is active. Next milestone adds new buildings."
+			if _building_count(BuildKind.STORAGE) <= 0:
+				return "Progression: build Storage to handle higher-yield fish."
+			return "Progression online: Storage is built. Next milestone adds land expansion."
+
+
+func _unlock_text() -> String:
+	if not _is_storage_unlocked():
+		if net_level < 2:
+			return "Unlocks: Net 2 reveals silverfish. Catch silverfish to unlock Storage."
+		return "Unlocks: catch silverfish to unlock Storage."
+	return "Unlocks: Storage available. Place it near markets for +6 capacity."
 
 
 func _progress_text(current: int, target: int) -> String:
@@ -945,6 +1078,7 @@ func _update_hud() -> void:
 		cutter_level
 	]
 	goal_label.text = _goal_text()
+	unlock_label.text = _unlock_text()
 	status_label.text = status_text
 	inspector_label.text = _selected_tile_text()
 	_update_tool_buttons()
@@ -954,8 +1088,9 @@ func _update_tool_buttons() -> void:
 	for tool in tool_buttons.keys():
 		var button: Button = tool_buttons[tool]
 		var cost := _tool_cost(str(tool))
+		button.text = _tool_label(str(tool))
 		button.button_pressed = tool == selected_tool
-		button.modulate = _affordability_color(cost)
+		button.modulate = Color("#6f7782") if not _is_tool_unlocked(str(tool)) else _affordability_color(cost)
 
 	if command_buttons.has("net"):
 		var net_button: Button = command_buttons["net"]
@@ -972,8 +1107,8 @@ func _update_tool_buttons() -> void:
 
 
 func _calculate_grid_rect() -> void:
-	var top_margin := 166.0
-	var bottom_margin := 250.0
+	var top_margin := 190.0
+	var bottom_margin := 272.0
 	var inner_width: float = max(1.0, size.x - 24.0)
 	var inner_height: float = max(1.0, size.y - top_margin - bottom_margin)
 	tile_px = floor(min(inner_width / float(GRID_W), inner_height / float(GRID_H)))
@@ -1078,6 +1213,12 @@ func _draw_land_tile(rect: Rect2, building: int) -> void:
 			draw_rect(stall, Color("#6c4a9b"))
 			draw_rect(Rect2(stall.position, Vector2(stall.size.x, stall.size.y * 0.32)), Color("#f2d16b"))
 			draw_line(stall.position + Vector2(0, stall.size.y * 0.32), stall.position + Vector2(stall.size.x, stall.size.y * 0.32), Color("#1b1720"), 2.0)
+		BuildKind.STORAGE:
+			var crate := rect.grow(-tile_px * 0.18)
+			draw_rect(crate, Color("#8a6f43"))
+			draw_rect(crate, Color("#f0d597"), false, 2.0)
+			draw_line(crate.position + Vector2(0, crate.size.y * 0.35), crate.position + Vector2(crate.size.x, crate.size.y * 0.35), Color("#473722"), 2.0)
+			draw_line(crate.position + Vector2(crate.size.x * 0.5, 0), crate.position + Vector2(crate.size.x * 0.5, crate.size.y), Color("#473722"), 2.0)
 
 
 func _draw_fish(center: Vector2, scale: float, fish_kind: int) -> void:
@@ -1150,8 +1291,10 @@ func _selected_tile_text() -> String:
 			return "Tile: cutter. Rate x" + _format_ratio(_cutter_rate_at(selected_cell)) + "; faster beside pools."
 		BuildKind.MARKET:
 			return "Tile: market. Sales " + str(_market_capacity_at(selected_cell)) + "/tick; road access doubles it."
+		BuildKind.STORAGE:
+			return "Tile: storage. Adds " + str(_storage_capacity_at(selected_cell)) + " meat capacity; better beside markets."
 		_:
-			return "Tile: open land. Build a pool, cutter, or market here."
+			return "Tile: open land. Build pool, cutter, market" + (", or storage" if _is_storage_unlocked() else "") + " here."
 
 
 func _building_label(building: int) -> String:
@@ -1162,5 +1305,7 @@ func _building_label(building: int) -> String:
 			return "CUT"
 		BuildKind.MARKET:
 			return "SELL"
+		BuildKind.STORAGE:
+			return "STO"
 		_:
 			return ""

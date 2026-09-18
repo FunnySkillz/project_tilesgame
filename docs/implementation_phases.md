@@ -73,18 +73,19 @@ Goal: give the player reasons to keep expanding.
 
 Needs:
 
-- unlock tree
-- multiple fish types
-- new buildings
-- land expansion
-- first 30-minute goal chain
+- [x] first unlock panel and gated unlock
+- [ ] broader unlock tree
+- [x] multiple fish types
+- [x] first new building
+- [ ] more buildings
+- [ ] land expansion
+- [ ] first 30-minute goal chain
 
 Next:
 
-- add a simple unlock tree or upgrade panel
-- add new buildings after fish variety creates a real need for them
 - add land expansion
 - turn the current goal line into a fuller first 30-minute goal chain
+- broaden the unlock tree after land expansion gives it more branches
 
 Implemented:
 
@@ -97,6 +98,11 @@ Implemented:
 - Net level 2 unlocks silverfish spawns
 - Net level 3 improves the better-fish spawn mix
 - post-Phase-1 goal text now points the player toward Net 2 and silverfish
+- unlock line shows the next progression target
+- Storage unlocks after catching silverfish
+- Storage building adds meat capacity
+- Storage gets bonus capacity beside markets
+- storage removal and movement are blocked when the building is needed for current meat capacity
 
 ## Phase 4: Danger
 
