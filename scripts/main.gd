@@ -20,6 +20,9 @@ const COST_POOL := 10
 const COST_CUTTER := 15
 const COST_MARKET := 20
 
+const CUSTOMER_PATIENCE_SECONDS := 10.0
+const MARKET_SELL_SECONDS := 1.25
+
 var tiles: Array = []
 var selected_tool := TOOL_CATCH
 var money := 30
@@ -30,7 +33,10 @@ var net_level := 1
 var pool_level := 1
 var cutter_level := 1
 var customers_waiting := 0
+var customers_lost := 0
 var customer_timer := 4.0
+var customer_patience_timer := CUSTOMER_PATIENCE_SECONDS
+var market_sell_timer := MARKET_SELL_SECONDS
 var cutter_progress := 0.0
 var status_text := "Tap water to catch fish. The starter fishery can already process and sell."
 var goal_step := GoalStep.CATCH
@@ -52,6 +58,7 @@ var goal_label: Label
 var inspector_label: Label
 var status_label: Label
 var tool_buttons: Dictionary = {}
+var command_buttons: Dictionary = {}
 
 
 func _ready() -> void:
@@ -89,6 +96,7 @@ func _draw() -> void:
 	_calculate_grid_rect()
 	draw_rect(Rect2(Vector2.ZERO, size), Color("#17212b"))
 	_draw_grid()
+	_draw_customer_queue()
 	_draw_footer_hint()
 	_draw_feedback_popups()
 
@@ -185,9 +193,9 @@ func _build_ui() -> void:
 	_add_tool_button(actions, TOOL_MARKET, "Market $20", "Build selling on land.")
 	_add_tool_button(actions, TOOL_MOVE, "Move", "Move one building to another land tile.")
 	_add_tool_button(actions, TOOL_REMOVE, "Remove", "Remove a building and recover half its cost.")
-	_add_command_button(actions, "Net +", "Upgrade net", _upgrade_net)
-	_add_command_button(actions, "Pool +", "Upgrade pools", _upgrade_pool)
-	_add_command_button(actions, "Cutter +", "Upgrade cutters", _upgrade_cutter)
+	command_buttons["net"] = _add_command_button(actions, "Net +", "Upgrade net", _upgrade_net)
+	command_buttons["pool"] = _add_command_button(actions, "Pool +", "Upgrade pools", _upgrade_pool)
+	command_buttons["cutter"] = _add_command_button(actions, "Cutter +", "Upgrade cutters", _upgrade_cutter)
 	_add_command_button(actions, "Clear", "Clear current tool", _select_catch)
 
 
@@ -201,20 +209,25 @@ func _add_tool_button(parent: Control, tool: String, text: String, tooltip: Stri
 		if tool != TOOL_MOVE:
 			_cancel_move_if_needed()
 		selected_tool = tool
-		status_text = "Selected " + text + "."
+		var cost := _tool_cost(tool)
+		if cost > 0 and money < cost:
+			status_text = "Selected " + text + ". Need $" + str(cost) + "; you have $" + str(money) + "."
+		else:
+			status_text = "Selected " + text + "."
 		_update_tool_buttons()
 	)
 	parent.add_child(button)
 	tool_buttons[tool] = button
 
 
-func _add_command_button(parent: Control, text: String, tooltip: String, callable: Callable) -> void:
+func _add_command_button(parent: Control, text: String, tooltip: String, callable: Callable) -> Button:
 	var button := Button.new()
 	button.text = text
 	button.tooltip_text = tooltip
 	button.custom_minimum_size = Vector2(96, 42)
 	button.pressed.connect(callable)
 	parent.add_child(button)
+	return button
 
 
 func _select_catch() -> void:
@@ -365,7 +378,7 @@ func _use_remove_tool(cell: Vector2i) -> void:
 
 
 func _upgrade_net() -> void:
-	var cost := 20 + (net_level - 1) * 15
+	var cost := _net_upgrade_cost()
 	if money < cost:
 		status_text = "Need $" + str(cost) + " to upgrade the net."
 		return
@@ -378,7 +391,7 @@ func _upgrade_net() -> void:
 
 
 func _upgrade_pool() -> void:
-	var cost := 25 + (pool_level - 1) * 20
+	var cost := _pool_upgrade_cost()
 	if money < cost:
 		status_text = "Need $" + str(cost) + " to upgrade pools."
 		return
@@ -391,7 +404,7 @@ func _upgrade_pool() -> void:
 
 
 func _upgrade_cutter() -> void:
-	var cost := 30 + (cutter_level - 1) * 25
+	var cost := _cutter_upgrade_cost()
 	if money < cost:
 		status_text = "Need $" + str(cost) + " to upgrade cutters."
 		return
@@ -446,7 +459,16 @@ func _tick_customers(delta: float) -> void:
 	customer_timer -= delta
 	if customer_timer <= 0.0:
 		customers_waiting = min(MAX_CUSTOMERS, customers_waiting + 1)
-		customer_timer = randf_range(3.0, 5.5)
+		customer_timer = randf_range(2.8, 4.6)
+		if customers_waiting == 1:
+			customer_patience_timer = CUSTOMER_PATIENCE_SECONDS
+
+	_tick_customer_patience(delta)
+
+	market_sell_timer -= delta
+	if market_sell_timer > 0.0:
+		return
+	market_sell_timer = MARKET_SELL_SECONDS
 
 	var sales_capacity := _market_sales_capacity()
 	if sales_capacity <= 0 or customers_waiting <= 0 or meat <= 0:
@@ -459,6 +481,23 @@ func _tick_customers(delta: float) -> void:
 	meat_sold_total += sold
 	status_text = "Sold " + str(sold) + " meat for $" + str(sold * 6) + "."
 	_add_popup("+$" + str(sold * 6), _building_center(BuildKind.MARKET), Color("#b7ef8a"))
+	customer_patience_timer = CUSTOMER_PATIENCE_SECONDS
+
+
+func _tick_customer_patience(delta: float) -> void:
+	if customers_waiting <= 0:
+		customer_patience_timer = CUSTOMER_PATIENCE_SECONDS
+		return
+
+	customer_patience_timer -= delta
+	if customer_patience_timer > 0.0:
+		return
+
+	customers_waiting -= 1
+	customers_lost += 1
+	customer_patience_timer = CUSTOMER_PATIENCE_SECONDS
+	status_text = "A customer left hungry. Add meat stock or move markets beside roads."
+	_add_popup("-customer", _building_center(BuildKind.MARKET), Color("#ff8f7a"))
 
 
 func _building_count(building: int) -> int:
@@ -564,6 +603,36 @@ func _building_cost(building: int) -> int:
 			return COST_MARKET
 		_:
 			return 0
+
+
+func _tool_cost(tool: String) -> int:
+	match tool:
+		TOOL_POOL:
+			return COST_POOL
+		TOOL_CUTTER:
+			return COST_CUTTER
+		TOOL_MARKET:
+			return COST_MARKET
+		_:
+			return 0
+
+
+func _net_upgrade_cost() -> int:
+	return 20 + (net_level - 1) * 15
+
+
+func _pool_upgrade_cost() -> int:
+	return 25 + (pool_level - 1) * 20
+
+
+func _cutter_upgrade_cost() -> int:
+	return 30 + (cutter_level - 1) * 25
+
+
+func _affordability_color(cost: int) -> Color:
+	if cost <= 0 or money >= cost:
+		return Color.WHITE
+	return Color("#a98282")
 
 
 func _building_name(building: int) -> String:
@@ -721,7 +790,7 @@ func _update_hud() -> void:
 		return
 
 	var capacity := _pool_capacity()
-	hud_label.text = "Coldwater Catch\n$%d   Carry:%d   Live:%d/%d   Meat:%d/%d   Customers:%d\nNet %d   Pool %d   Cutter %d" % [
+	hud_label.text = "Coldwater Catch\n$%d   Carry:%d   Live:%d/%d   Meat:%d/%d\nQueue:%d   Lost:%d   Patience:%ds\nNet %d   Pool %d   Cutter %d" % [
 		money,
 		carried_fish,
 		live_fish,
@@ -729,6 +798,8 @@ func _update_hud() -> void:
 		meat,
 		_meat_capacity(),
 		customers_waiting,
+		customers_lost,
+		int(ceil(customer_patience_timer)) if customers_waiting > 0 else int(CUSTOMER_PATIENCE_SECONDS),
 		net_level,
 		pool_level,
 		cutter_level
@@ -742,11 +813,26 @@ func _update_hud() -> void:
 func _update_tool_buttons() -> void:
 	for tool in tool_buttons.keys():
 		var button: Button = tool_buttons[tool]
+		var cost := _tool_cost(str(tool))
 		button.button_pressed = tool == selected_tool
+		button.modulate = _affordability_color(cost)
+
+	if command_buttons.has("net"):
+		var net_button: Button = command_buttons["net"]
+		net_button.text = "Net $" + str(_net_upgrade_cost())
+		net_button.modulate = _affordability_color(_net_upgrade_cost())
+	if command_buttons.has("pool"):
+		var pool_button: Button = command_buttons["pool"]
+		pool_button.text = "Pool $" + str(_pool_upgrade_cost())
+		pool_button.modulate = _affordability_color(_pool_upgrade_cost())
+	if command_buttons.has("cutter"):
+		var cutter_button: Button = command_buttons["cutter"]
+		cutter_button.text = "Cutter $" + str(_cutter_upgrade_cost())
+		cutter_button.modulate = _affordability_color(_cutter_upgrade_cost())
 
 
 func _calculate_grid_rect() -> void:
-	var top_margin := 136.0
+	var top_margin := 166.0
 	var bottom_margin := 250.0
 	var inner_width: float = max(1.0, size.x - 24.0)
 	var inner_height: float = max(1.0, size.y - top_margin - bottom_margin)
@@ -807,6 +893,25 @@ func _draw_road_tile(rect: Rect2) -> void:
 	draw_rect(rect, Color("#504a45"))
 	draw_line(rect.position + Vector2(0, rect.size.y * 0.5), rect.end - Vector2(0, rect.size.y * 0.5), Color("#e8d28d"), 3.0)
 	draw_line(rect.position + Vector2(8, rect.size.y * 0.5), rect.position + Vector2(rect.size.x - 8, rect.size.y * 0.5), Color("#2c2927"), 1.0)
+
+
+func _draw_customer_queue() -> void:
+	if customers_waiting <= 0:
+		return
+
+	var patience_ratio: float = clamp(customer_patience_timer / CUSTOMER_PATIENCE_SECONDS, 0.0, 1.0)
+	var color: Color = Color("#b7ef8a") if patience_ratio > 0.5 else Color("#ffb36b")
+	if patience_ratio < 0.25:
+		color = Color("#ff8f7a")
+
+	var shown: int = min(customers_waiting, MAX_CUSTOMERS)
+	for i: int in shown:
+		var road_x: int = i % GRID_W
+		var row_offset: int = int(floor(float(i) / float(GRID_W)))
+		var rect := _cell_rect(Vector2i(road_x, GRID_H - 1))
+		var center := rect.get_center() + Vector2(0, -float(row_offset) * 9.0)
+		draw_circle(center + Vector2(0, -5), tile_px * 0.08, color)
+		draw_rect(Rect2(center + Vector2(-tile_px * 0.06, -1), Vector2(tile_px * 0.12, tile_px * 0.13)), color)
 
 
 func _draw_land_tile(rect: Rect2, building: int) -> void:

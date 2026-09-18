@@ -17,6 +17,8 @@ The current prototype is intentionally small:
 - follow the goal line to complete the Phase 1 loop
 - use Move and Remove to improve your tile layout
 - pools work better beside water, cutters work better beside pools, markets work better beside roads
+- customers now wait on the road, lose patience, and leave if meat/market flow is too slow
+- unaffordable build and upgrade buttons are tinted, and upgrade buttons show current prices
 
 ## Design Docs
 

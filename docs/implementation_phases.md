@@ -51,13 +51,20 @@ Implemented:
 - move building tool
 - remove building tool with partial refund
 - inspector text for local layout bonuses
+- button affordability tinting and dynamic upgrade prices
+- timed market sales instead of instant frame-by-frame selling
+- customer patience timer and lost-customer pressure
+- visible waiting customers on the road row
 
 Next:
 
-- add clearer affordability states
-- add stronger market/customer pressure
 - add optional building move cost or late-game free relocation
-- decide whether production should use adjacency only or explicit paths
+- tune customer arrival, patience, sale speed, and sale value after playtesting
+- add a first lightweight texture pack once the layout loop feels readable
+
+Decision:
+
+Use adjacency rules for Phase 2. They are readable on a small phone grid and fast to tune. Save explicit pathfinding for later workers, monsters, carts, and trucks, where routes become part of the fantasy instead of extra friction in the first layout loop.
 
 ## Phase 3: Progression
 
