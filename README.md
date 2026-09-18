@@ -15,11 +15,14 @@ The current prototype is intentionally small:
 - cutters automatically process live fish into meat
 - markets automatically sell meat to customers
 - follow the goal line to complete the Phase 1 loop
+- use Move and Remove to improve your tile layout
+- pools work better beside water, cutters work better beside pools, markets work better beside roads
 
 ## Design Docs
 
 - `docs/design_plan.md` defines the game plan.
 - `docs/implementation_phases.md` tracks the build phases.
+- `docs/art_plan.md` explains when generated figures and textures should happen.
 
 ## Local Godot Install
 

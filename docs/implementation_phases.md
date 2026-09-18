@@ -4,7 +4,7 @@ This file tracks how the design plan is being turned into playable builds.
 
 ## Phase 1: Fun Core
 
-Status: in progress.
+Status: playable baseline complete.
 
 Goal: prove that the core loop is satisfying on a phone-sized screen.
 
@@ -23,14 +23,12 @@ Implemented:
 
 Next:
 
-- improve build menu ergonomics
-- add remove or move building action
-- add better affordability feedback
 - tune timings and costs after playtesting
+- replace temporary visuals after Phase 2 stabilizes
 
 ## Phase 2: Layout Game
 
-Status: planned.
+Status: in progress.
 
 Goal: make tile placement matter.
 
@@ -42,6 +40,24 @@ Needs:
 - market/customer waiting pressure
 - better tile inspector
 - basic path or adjacency rules for production flow
+
+Implemented:
+
+- road tiles as sell-side anchors
+- market road-adjacency sales bonus
+- pool water-adjacency capacity bonus
+- cutter pool-adjacency work-rate bonus
+- meat storage limit
+- move building tool
+- remove building tool with partial refund
+- inspector text for local layout bonuses
+
+Next:
+
+- add clearer affordability states
+- add stronger market/customer pressure
+- add optional building move cost or late-game free relocation
+- decide whether production should use adjacency only or explicit paths
 
 ## Phase 3: Progression
 

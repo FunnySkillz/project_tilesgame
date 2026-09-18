@@ -1,6 +1,6 @@
 extends Control
 
-enum TileKind { WATER, LAND }
+enum TileKind { WATER, LAND, ROAD }
 enum BuildKind { NONE, POOL, CUTTER, MARKET }
 enum GoalStep { CATCH, STORE, PROCESS, SELL, UPGRADE, BUILD, COMPLETE }
 
@@ -13,6 +13,8 @@ const TOOL_CATCH := "catch"
 const TOOL_POOL := "pool"
 const TOOL_CUTTER := "cutter"
 const TOOL_MARKET := "market"
+const TOOL_MOVE := "move"
+const TOOL_REMOVE := "remove"
 
 const COST_POOL := 10
 const COST_CUTTER := 15
@@ -42,6 +44,8 @@ var buildings_built_total := 0
 var grid_rect := Rect2()
 var tile_px := 48.0
 var selected_cell := Vector2i(-1, -1)
+var moving_building := BuildKind.NONE
+var move_source_cell := Vector2i(-1, -1)
 var feedback_popups: Array = []
 var hud_label: Label
 var goal_label: Label
@@ -94,7 +98,11 @@ func _init_tiles() -> void:
 	for y in GRID_H:
 		var row: Array = []
 		for x in GRID_W:
-			var kind := TileKind.WATER if y < WATER_ROWS else TileKind.LAND
+			var kind := TileKind.LAND
+			if y < WATER_ROWS:
+				kind = TileKind.WATER
+			elif y == GRID_H - 1:
+				kind = TileKind.ROAD
 			var fish_count := randi_range(1, 2) if kind == TileKind.WATER and randf() < 0.45 else 0
 			row.append({
 				"kind": kind,
@@ -104,9 +112,9 @@ func _init_tiles() -> void:
 			})
 		tiles.append(row)
 
-	_set_starter_building(Vector2i(1, 4), BuildKind.POOL)
-	_set_starter_building(Vector2i(3, 5), BuildKind.CUTTER)
-	_set_starter_building(Vector2i(6, 7), BuildKind.MARKET)
+	_set_starter_building(Vector2i(1, 3), BuildKind.POOL)
+	_set_starter_building(Vector2i(2, 3), BuildKind.CUTTER)
+	_set_starter_building(Vector2i(6, 8), BuildKind.MARKET)
 
 
 func _set_starter_building(cell: Vector2i, building: int) -> void:
@@ -166,7 +174,7 @@ func _build_ui() -> void:
 	bottom_box.add_child(inspector_label)
 
 	var actions := GridContainer.new()
-	actions.columns = 4
+	actions.columns = 5
 	actions.add_theme_constant_override("h_separation", 6)
 	actions.add_theme_constant_override("v_separation", 6)
 	bottom_box.add_child(actions)
@@ -175,6 +183,8 @@ func _build_ui() -> void:
 	_add_tool_button(actions, TOOL_POOL, "Pool $10", "Build live fish capacity on land.")
 	_add_tool_button(actions, TOOL_CUTTER, "Cutter $15", "Build processing on land.")
 	_add_tool_button(actions, TOOL_MARKET, "Market $20", "Build selling on land.")
+	_add_tool_button(actions, TOOL_MOVE, "Move", "Move one building to another land tile.")
+	_add_tool_button(actions, TOOL_REMOVE, "Remove", "Remove a building and recover half its cost.")
 	_add_command_button(actions, "Net +", "Upgrade net", _upgrade_net)
 	_add_command_button(actions, "Pool +", "Upgrade pools", _upgrade_pool)
 	_add_command_button(actions, "Cutter +", "Upgrade cutters", _upgrade_cutter)
@@ -186,8 +196,10 @@ func _add_tool_button(parent: Control, tool: String, text: String, tooltip: Stri
 	button.text = text
 	button.tooltip_text = tooltip
 	button.toggle_mode = true
-	button.custom_minimum_size = Vector2(112, 44)
+	button.custom_minimum_size = Vector2(96, 42)
 	button.pressed.connect(func() -> void:
+		if tool != TOOL_MOVE:
+			_cancel_move_if_needed()
 		selected_tool = tool
 		status_text = "Selected " + text + "."
 		_update_tool_buttons()
@@ -200,12 +212,13 @@ func _add_command_button(parent: Control, text: String, tooltip: String, callabl
 	var button := Button.new()
 	button.text = text
 	button.tooltip_text = tooltip
-	button.custom_minimum_size = Vector2(112, 44)
+	button.custom_minimum_size = Vector2(96, 42)
 	button.pressed.connect(callable)
 	parent.add_child(button)
 
 
 func _select_catch() -> void:
+	_cancel_move_if_needed()
 	selected_tool = TOOL_CATCH
 	status_text = "Catch selected."
 	_update_tool_buttons()
@@ -234,6 +247,10 @@ func _try_handle_tap(position: Vector2) -> void:
 			_try_build(cell, BuildKind.CUTTER, COST_CUTTER, "cutter")
 		TOOL_MARKET:
 			_try_build(cell, BuildKind.MARKET, COST_MARKET, "market")
+		TOOL_MOVE:
+			_use_move_tool(cell)
+		TOOL_REMOVE:
+			_use_remove_tool(cell)
 
 	_update_hud()
 	queue_redraw()
@@ -292,8 +309,59 @@ func _try_build(cell: Vector2i, building: int, cost: int, label: String) -> void
 	tile["building"] = building
 	tiles[cell.y][cell.x] = tile
 	buildings_built_total += 1
-	status_text = "Built a " + label + "."
+	status_text = "Built a " + label + ". " + _layout_hint_for_building(cell, building)
 	_add_popup_for_cell(cell, "-" + str(cost) + "$", Color("#ffd7bb"))
+
+
+func _use_move_tool(cell: Vector2i) -> void:
+	var tile: Dictionary = tiles[cell.y][cell.x]
+	if moving_building == BuildKind.NONE:
+		if tile["building"] == BuildKind.NONE:
+			status_text = "Tap a building first, then tap an empty land tile."
+			return
+		if tile["building"] == BuildKind.POOL and not _can_remove_pool_at(cell):
+			status_text = "Cannot move this pool while it is needed for live fish capacity."
+			return
+
+		moving_building = int(tile["building"])
+		move_source_cell = cell
+		tile["building"] = BuildKind.NONE
+		tiles[cell.y][cell.x] = tile
+		status_text = "Moving " + _building_name(moving_building) + ". Tap an empty land tile to place it."
+		_add_popup_for_cell(cell, "Move", Color("#f2d16b"))
+		return
+
+	if tile["kind"] != TileKind.LAND:
+		status_text = "Moved buildings must be placed on land."
+		return
+	if tile["building"] != BuildKind.NONE:
+		status_text = "That tile is occupied. Pick an empty land tile."
+		return
+
+	tile["building"] = moving_building
+	tiles[cell.y][cell.x] = tile
+	status_text = "Moved " + _building_name(moving_building) + ". " + _layout_hint_for_building(cell, moving_building)
+	_add_popup_for_cell(cell, "Placed", Color("#b7ef8a"))
+	moving_building = BuildKind.NONE
+	move_source_cell = Vector2i(-1, -1)
+
+
+func _use_remove_tool(cell: Vector2i) -> void:
+	var tile: Dictionary = tiles[cell.y][cell.x]
+	var building := int(tile["building"])
+	if building == BuildKind.NONE:
+		status_text = "Tap a building to remove it."
+		return
+	if building == BuildKind.POOL and not _can_remove_pool_at(cell):
+		status_text = "Cannot remove this pool while it is needed for live fish capacity."
+		return
+
+	var refund := int(floor(float(_building_cost(building)) * 0.5))
+	money += refund
+	tile["building"] = BuildKind.NONE
+	tiles[cell.y][cell.x] = tile
+	status_text = "Removed " + _building_name(building) + " and recovered $" + str(refund) + "."
+	_add_popup_for_cell(cell, "+$" + str(refund), Color("#b7ef8a"))
 
 
 func _upgrade_net() -> void:
@@ -354,14 +422,20 @@ func _tick_cutters(delta: float) -> void:
 	if cutter_count <= 0 or live_fish <= 0:
 		cutter_progress = 0.0
 		return
+	if meat >= _meat_capacity():
+		status_text = "Meat storage is full. Build or move markets near roads to sell faster."
+		return
 
-	var required: float = max(1.2, 4.0 - float(cutter_level - 1) * 0.45)
-	cutter_progress += delta * float(cutter_count)
+	var required: float = _cutter_required_time()
+	cutter_progress += delta * _cutter_rate()
 
 	while cutter_progress >= required and live_fish > 0:
+		var produced := 2 + int(cutter_level >= 3)
+		if meat + produced > _meat_capacity():
+			status_text = "Meat storage is full. Markets create more storage and sell faster near roads."
+			break
 		cutter_progress -= required
 		live_fish -= 1
-		var produced := 2 + int(cutter_level >= 3)
 		meat += produced
 		meat_processed_total += produced
 		status_text = "Cutters processed fish into meat."
@@ -374,11 +448,11 @@ func _tick_customers(delta: float) -> void:
 		customers_waiting = min(MAX_CUSTOMERS, customers_waiting + 1)
 		customer_timer = randf_range(3.0, 5.5)
 
-	var market_count := _building_count(BuildKind.MARKET)
-	if market_count <= 0 or customers_waiting <= 0 or meat <= 0:
+	var sales_capacity := _market_sales_capacity()
+	if sales_capacity <= 0 or customers_waiting <= 0 or meat <= 0:
 		return
 
-	var sold: int = min(meat, market_count, customers_waiting)
+	var sold: int = min(meat, sales_capacity, customers_waiting)
 	meat -= sold
 	customers_waiting -= sold
 	money += sold * 6
@@ -397,7 +471,165 @@ func _building_count(building: int) -> int:
 
 
 func _pool_capacity() -> int:
-	return _building_count(BuildKind.POOL) * (4 + pool_level * 2)
+	var capacity := 0
+	for y in GRID_H:
+		for x in GRID_W:
+			var tile: Dictionary = tiles[y][x]
+			if tile["building"] == BuildKind.POOL:
+				capacity += _pool_capacity_at(Vector2i(x, y))
+	return capacity
+
+
+func _pool_capacity_at(cell: Vector2i) -> int:
+	var capacity := 4 + pool_level * 2
+	if _has_adjacent_tile_kind(cell, TileKind.WATER):
+		capacity += 2
+	return capacity
+
+
+func _pool_capacity_without(cell_to_exclude: Vector2i) -> int:
+	var capacity := 0
+	for y in GRID_H:
+		for x in GRID_W:
+			var cell := Vector2i(x, y)
+			if cell == cell_to_exclude:
+				continue
+			var tile: Dictionary = tiles[y][x]
+			if tile["building"] == BuildKind.POOL:
+				capacity += _pool_capacity_at(cell)
+	return capacity
+
+
+func _can_remove_pool_at(cell: Vector2i) -> bool:
+	return live_fish <= _pool_capacity_without(cell)
+
+
+func _meat_capacity() -> int:
+	return 18 + _building_count(BuildKind.MARKET) * 6 + cutter_level * 2
+
+
+func _cutter_required_time() -> float:
+	return max(1.2, 4.0 - float(cutter_level - 1) * 0.45)
+
+
+func _cutter_rate() -> float:
+	var rate := 0.0
+	for y in GRID_H:
+		for x in GRID_W:
+			var cell := Vector2i(x, y)
+			var tile: Dictionary = tiles[y][x]
+			if tile["building"] != BuildKind.CUTTER:
+				continue
+			rate += _cutter_rate_at(cell)
+	return rate
+
+
+func _cutter_rate_at(cell: Vector2i) -> float:
+	var rate := 1.0
+	if _has_adjacent_building(cell, BuildKind.POOL):
+		rate += 0.5
+	return rate
+
+
+func _market_sales_capacity() -> int:
+	var capacity := 0
+	for y in GRID_H:
+		for x in GRID_W:
+			var cell := Vector2i(x, y)
+			var tile: Dictionary = tiles[y][x]
+			if tile["building"] != BuildKind.MARKET:
+				continue
+			capacity += _market_capacity_at(cell)
+	return capacity
+
+
+func _market_capacity_at(cell: Vector2i) -> int:
+	var capacity := 1
+	if _has_adjacent_tile_kind(cell, TileKind.ROAD):
+		capacity += 1
+	return capacity
+
+
+func _format_ratio(value: float) -> String:
+	return "%.1f" % value
+
+
+func _building_cost(building: int) -> int:
+	match building:
+		BuildKind.POOL:
+			return COST_POOL
+		BuildKind.CUTTER:
+			return COST_CUTTER
+		BuildKind.MARKET:
+			return COST_MARKET
+		_:
+			return 0
+
+
+func _building_name(building: int) -> String:
+	match building:
+		BuildKind.POOL:
+			return "pool"
+		BuildKind.CUTTER:
+			return "cutter"
+		BuildKind.MARKET:
+			return "market"
+		_:
+			return "building"
+
+
+func _layout_hint_for_building(cell: Vector2i, building: int) -> String:
+	match building:
+		BuildKind.POOL:
+			if _has_adjacent_tile_kind(cell, TileKind.WATER):
+				return "Water access gives this pool +2 capacity."
+			return "Pools get +2 capacity when touching water."
+		BuildKind.CUTTER:
+			if _has_adjacent_building(cell, BuildKind.POOL):
+				return "Adjacent pool gives this cutter +50% work rate."
+			return "Cutters work faster beside pools."
+		BuildKind.MARKET:
+			if _has_adjacent_tile_kind(cell, TileKind.ROAD):
+				return "Road access lets this market sell twice as fast."
+			return "Markets sell faster beside the road."
+		_:
+			return ""
+
+
+func _adjacent_cells(cell: Vector2i) -> Array:
+	var result: Array = []
+	for offset: Vector2i in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		var next: Vector2i = cell + offset
+		if next.x >= 0 and next.y >= 0 and next.x < GRID_W and next.y < GRID_H:
+			result.append(next)
+	return result
+
+
+func _has_adjacent_tile_kind(cell: Vector2i, kind: int) -> bool:
+	for next in _adjacent_cells(cell):
+		var tile: Dictionary = tiles[next.y][next.x]
+		if tile["kind"] == kind:
+			return true
+	return false
+
+
+func _has_adjacent_building(cell: Vector2i, building: int) -> bool:
+	for next in _adjacent_cells(cell):
+		var tile: Dictionary = tiles[next.y][next.x]
+		if tile["building"] == building:
+			return true
+	return false
+
+
+func _cancel_move_if_needed() -> void:
+	if moving_building == BuildKind.NONE:
+		return
+	var tile: Dictionary = tiles[move_source_cell.y][move_source_cell.x]
+	tile["building"] = moving_building
+	tiles[move_source_cell.y][move_source_cell.x] = tile
+	moving_building = BuildKind.NONE
+	move_source_cell = Vector2i(-1, -1)
+	status_text = "Move cancelled."
 
 
 func _check_goal_progress() -> void:
@@ -489,12 +721,13 @@ func _update_hud() -> void:
 		return
 
 	var capacity := _pool_capacity()
-	hud_label.text = "Coldwater Catch\n$%d   Carry:%d   Live:%d/%d   Meat:%d   Customers:%d\nNet %d   Pool %d   Cutter %d" % [
+	hud_label.text = "Coldwater Catch\n$%d   Carry:%d   Live:%d/%d   Meat:%d/%d   Customers:%d\nNet %d   Pool %d   Cutter %d" % [
 		money,
 		carried_fish,
 		live_fish,
 		capacity,
 		meat,
+		_meat_capacity(),
 		customers_waiting,
 		net_level,
 		pool_level,
@@ -538,12 +771,18 @@ func _draw_grid() -> void:
 				Vector2(tile_px, tile_px)
 			).grow(-2.0)
 
-			var fill := Color("#326b82") if tile["kind"] == TileKind.WATER else Color("#5e6747")
+			var fill := Color("#5e6747")
+			if tile["kind"] == TileKind.WATER:
+				fill = Color("#326b82")
+			elif tile["kind"] == TileKind.ROAD:
+				fill = Color("#504a45")
 			draw_rect(rect, fill)
 			draw_rect(rect, Color("#0e151b"), false, 2.0)
 
 			if tile["kind"] == TileKind.WATER:
 				_draw_water_tile(rect, int(tile["fish"]))
+			elif tile["kind"] == TileKind.ROAD:
+				_draw_road_tile(rect)
 			else:
 				_draw_land_tile(rect, int(tile["building"]))
 
@@ -564,6 +803,12 @@ func _draw_water_tile(rect: Rect2, fish_count: int) -> void:
 		_draw_fish(rect.get_center() + offset, tile_px * 0.18)
 
 
+func _draw_road_tile(rect: Rect2) -> void:
+	draw_rect(rect, Color("#504a45"))
+	draw_line(rect.position + Vector2(0, rect.size.y * 0.5), rect.end - Vector2(0, rect.size.y * 0.5), Color("#e8d28d"), 3.0)
+	draw_line(rect.position + Vector2(8, rect.size.y * 0.5), rect.position + Vector2(rect.size.x - 8, rect.size.y * 0.5), Color("#2c2927"), 1.0)
+
+
 func _draw_land_tile(rect: Rect2, building: int) -> void:
 	match building:
 		BuildKind.NONE:
@@ -581,7 +826,7 @@ func _draw_land_tile(rect: Rect2, building: int) -> void:
 			draw_rect(body, Color("#ffd7bb"), false, 2.0)
 			draw_line(body.position + Vector2(8, body.size.y - 8), body.end - Vector2(8, body.size.y - 8), Color("#f4f0e5"), 5.0)
 			if _building_count(BuildKind.CUTTER) > 0:
-				var bar_width: float = body.size.x * clamp(cutter_progress / 4.0, 0.0, 1.0)
+				var bar_width: float = body.size.x * clamp(cutter_progress / _cutter_required_time(), 0.0, 1.0)
 				draw_rect(Rect2(body.position + Vector2(0, body.size.y - 5), Vector2(bar_width, 5)), Color("#f2d16b"))
 		BuildKind.MARKET:
 			var stall := rect.grow(-tile_px * 0.16)
@@ -607,7 +852,15 @@ func _draw_footer_hint() -> void:
 	if selected_tool == TOOL_CATCH:
 		return
 	var font := get_theme_default_font()
-	draw_string(font, grid_rect.position + Vector2(4, grid_rect.size.y + 24), "Tap a land tile to place: " + selected_tool, HORIZONTAL_ALIGNMENT_LEFT, grid_rect.size.x, 16, Color("#f5efe1"))
+	var hint := ""
+	match selected_tool:
+		TOOL_MOVE:
+			hint = "Move: tap a building, then an empty land tile."
+		TOOL_REMOVE:
+			hint = "Remove: tap a building to recover half its cost."
+		_:
+			hint = "Tap a land tile to place: " + selected_tool
+	draw_string(font, grid_rect.position + Vector2(4, grid_rect.size.y + 24), hint, HORIZONTAL_ALIGNMENT_LEFT, grid_rect.size.x, 16, Color("#f5efe1"))
 
 
 func _draw_feedback_popups() -> void:
@@ -638,14 +891,16 @@ func _selected_tile_text() -> String:
 	var tile: Dictionary = tiles[selected_cell.y][selected_cell.x]
 	if tile["kind"] == TileKind.WATER:
 		return "Tile: water with " + str(tile["fish"]) + " fish."
+	if tile["kind"] == TileKind.ROAD:
+		return "Tile: road. Markets beside roads sell twice as fast."
 
 	match int(tile["building"]):
 		BuildKind.POOL:
-			return "Tile: pool. Total live capacity " + str(_pool_capacity()) + "."
+			return "Tile: pool. This pool holds " + str(_pool_capacity_at(selected_cell)) + "; total live capacity " + str(_pool_capacity()) + "."
 		BuildKind.CUTTER:
-			return "Tile: cutter. Processing live fish into meat."
+			return "Tile: cutter. Rate x" + _format_ratio(_cutter_rate_at(selected_cell)) + "; faster beside pools."
 		BuildKind.MARKET:
-			return "Tile: market. Sells meat to waiting customers."
+			return "Tile: market. Sales " + str(_market_capacity_at(selected_cell)) + "/tick; road access doubles it."
 		_:
 			return "Tile: open land. Build a pool, cutter, or market here."
 
