@@ -1,6 +1,6 @@
 extends Control
 
-enum TileKind { WATER, LAND, ROAD }
+enum TileKind { WATER, LAND, ROAD, EXPANSION }
 enum BuildKind { NONE, POOL, CUTTER, MARKET, STORAGE }
 enum GoalStep { CATCH, STORE, PROCESS, SELL, UPGRADE, BUILD, COMPLETE }
 enum FishKind { MINNOW, CARP, SILVERFISH }
@@ -15,6 +15,7 @@ const TOOL_POOL := "pool"
 const TOOL_CUTTER := "cutter"
 const TOOL_MARKET := "market"
 const TOOL_STORAGE := "storage"
+const TOOL_EXPAND := "expand"
 const TOOL_MOVE := "move"
 const TOOL_REMOVE := "remove"
 
@@ -22,6 +23,7 @@ const COST_POOL := 10
 const COST_CUTTER := 15
 const COST_MARKET := 20
 const COST_STORAGE := 25
+const COST_EXPAND := 35
 
 const CUSTOMER_PATIENCE_SECONDS := 10.0
 const MARKET_SELL_SECONDS := 1.25
@@ -51,6 +53,7 @@ var meat_sold_total := 0
 var upgrades_bought_total := 0
 var buildings_built_total := 0
 var storage_unlocked := false
+var land_expanded_total := 0
 
 var grid_rect := Rect2()
 var tile_px := 48.0
@@ -117,6 +120,8 @@ func _init_tiles() -> void:
 				kind = TileKind.WATER
 			elif y == GRID_H - 1:
 				kind = TileKind.ROAD
+			elif x == 0 or x == GRID_W - 1:
+				kind = TileKind.EXPANSION
 			var fish_kind := _random_fish_kind()
 			var fish_count := randi_range(1, 2) if kind == TileKind.WATER and randf() < 0.45 else 0
 			row.append({
@@ -205,6 +210,7 @@ func _build_ui() -> void:
 	_add_tool_button(actions, TOOL_CUTTER, "Cutter $15", "Build processing on land.")
 	_add_tool_button(actions, TOOL_MARKET, "Market $20", "Build selling on land.")
 	_add_tool_button(actions, TOOL_STORAGE, "Storage", "Unlock by catching silverfish. Adds meat storage capacity.")
+	_add_tool_button(actions, TOOL_EXPAND, "Expand", "Unlock after building Storage. Converts edge ground into buildable land.")
 	_add_tool_button(actions, TOOL_MOVE, "Move", "Move one building to another land tile.")
 	_add_tool_button(actions, TOOL_REMOVE, "Remove", "Remove a building and recover half its cost.")
 	command_buttons["net"] = _add_command_button(actions, "Net +", "Upgrade net", _upgrade_net)
@@ -280,6 +286,8 @@ func _try_handle_tap(position: Vector2) -> void:
 			_try_build(cell, BuildKind.MARKET, COST_MARKET, "market")
 		TOOL_STORAGE:
 			_try_build(cell, BuildKind.STORAGE, COST_STORAGE, "storage")
+		TOOL_EXPAND:
+			_try_expand_land(cell)
 		TOOL_MOVE:
 			_use_move_tool(cell)
 		TOOL_REMOVE:
@@ -348,6 +356,27 @@ func _try_build(cell: Vector2i, building: int, cost: int, label: String) -> void
 	buildings_built_total += 1
 	status_text = "Built a " + label + ". " + _layout_hint_for_building(cell, building)
 	_add_popup_for_cell(cell, "-" + str(cost) + "$", Color("#ffd7bb"))
+
+
+func _try_expand_land(cell: Vector2i) -> void:
+	if not _is_tool_unlocked(TOOL_EXPAND):
+		status_text = _tool_locked_reason(TOOL_EXPAND)
+		return
+
+	var tile: Dictionary = tiles[cell.y][cell.x]
+	if tile["kind"] != TileKind.EXPANSION:
+		status_text = "Tap an edge expansion tile to buy more land."
+		return
+	if money < COST_EXPAND:
+		status_text = "Need $" + str(COST_EXPAND) + " to expand land."
+		return
+
+	money -= COST_EXPAND
+	tile["kind"] = TileKind.LAND
+	tiles[cell.y][cell.x] = tile
+	land_expanded_total += 1
+	status_text = "Expanded the base with a new land tile."
+	_add_popup_for_cell(cell, "Land +1", Color("#b7ef8a"))
 
 
 func _use_move_tool(cell: Vector2i) -> void:
@@ -799,6 +828,8 @@ func _tool_cost(tool: String) -> int:
 			return COST_MARKET
 		TOOL_STORAGE:
 			return COST_STORAGE
+		TOOL_EXPAND:
+			return COST_EXPAND
 		_:
 			return 0
 
@@ -815,6 +846,8 @@ func _tool_label(tool: String) -> String:
 			return "Market $" + str(COST_MARKET)
 		TOOL_STORAGE:
 			return "Storage $" + str(COST_STORAGE) if _is_tool_unlocked(tool) else "Storage L"
+		TOOL_EXPAND:
+			return "Expand $" + str(COST_EXPAND) if _is_tool_unlocked(tool) else "Expand L"
 		TOOL_MOVE:
 			return "Move"
 		TOOL_REMOVE:
@@ -826,12 +859,16 @@ func _tool_label(tool: String) -> String:
 func _is_tool_unlocked(tool: String) -> bool:
 	if tool == TOOL_STORAGE:
 		return _is_storage_unlocked()
+	if tool == TOOL_EXPAND:
+		return _is_land_expansion_unlocked()
 	return true
 
 
 func _tool_locked_reason(tool: String) -> String:
 	if tool == TOOL_STORAGE:
 		return "Storage is locked. Catch a silverfish after upgrading the net to level 2."
+	if tool == TOOL_EXPAND:
+		return "Expansion is locked. Build Storage first."
 	return "This tool is locked."
 
 
@@ -849,6 +886,10 @@ func _building_locked_reason(building: int) -> String:
 
 func _is_storage_unlocked() -> bool:
 	return storage_unlocked or int(fish_caught_by_kind[FishKind.SILVERFISH]) > 0
+
+
+func _is_land_expansion_unlocked() -> bool:
+	return _building_count(BuildKind.STORAGE) > 0
 
 
 func _maybe_unlock_storage(fish_kind: int) -> String:
@@ -1008,7 +1049,9 @@ func _goal_text() -> String:
 				return "Progression: catch a silverfish. It yields 3 meat."
 			if _building_count(BuildKind.STORAGE) <= 0:
 				return "Progression: build Storage to handle higher-yield fish."
-			return "Progression online: Storage is built. Next milestone adds land expansion."
+			if land_expanded_total <= 0:
+				return "Progression: expand one edge tile to grow the base."
+			return "Progression online: land expansion is active. Next milestone is the 30-minute goal chain."
 
 
 func _unlock_text() -> String:
@@ -1016,7 +1059,9 @@ func _unlock_text() -> String:
 		if net_level < 2:
 			return "Unlocks: Net 2 reveals silverfish. Catch silverfish to unlock Storage."
 		return "Unlocks: catch silverfish to unlock Storage."
-	return "Unlocks: Storage available. Place it near markets for +6 capacity."
+	if not _is_land_expansion_unlocked():
+		return "Unlocks: Storage available. Build Storage to unlock land expansion."
+	return "Unlocks: Expand edge tiles into land for $" + str(COST_EXPAND) + "."
 
 
 func _progress_text(current: int, target: int) -> String:
@@ -1061,7 +1106,7 @@ func _update_hud() -> void:
 		return
 
 	var capacity := _pool_capacity()
-	hud_label.text = "Coldwater Catch\n$%d   Carry:%d %s   Live:%d/%d %s   Meat:%d/%d\nQueue:%d   Lost:%d   Patience:%ds\nNet %d   Pool %d   Cutter %d" % [
+	hud_label.text = "Coldwater Catch\n$%d   Carry:%d %s   Live:%d/%d %s   Meat:%d/%d\nQueue:%d   Lost:%d   Patience:%ds   Land:%d\nNet %d   Pool %d   Cutter %d" % [
 		money,
 		_carried_fish_total(),
 		_stock_summary(carried_fish_stock),
@@ -1073,6 +1118,7 @@ func _update_hud() -> void:
 		customers_waiting,
 		customers_lost,
 		int(ceil(customer_patience_timer)) if customers_waiting > 0 else int(CUSTOMER_PATIENCE_SECONDS),
+		land_expanded_total,
 		net_level,
 		pool_level,
 		cutter_level
@@ -1107,7 +1153,7 @@ func _update_tool_buttons() -> void:
 
 
 func _calculate_grid_rect() -> void:
-	var top_margin := 190.0
+	var top_margin := 206.0
 	var bottom_margin := 272.0
 	var inner_width: float = max(1.0, size.x - 24.0)
 	var inner_height: float = max(1.0, size.y - top_margin - bottom_margin)
@@ -1137,6 +1183,8 @@ func _draw_grid() -> void:
 				fill = Color("#326b82")
 			elif tile["kind"] == TileKind.ROAD:
 				fill = Color("#504a45")
+			elif tile["kind"] == TileKind.EXPANSION:
+				fill = Color("#4d5660")
 			draw_rect(rect, fill)
 			draw_rect(rect, Color("#0e151b"), false, 2.0)
 
@@ -1144,6 +1192,8 @@ func _draw_grid() -> void:
 				_draw_water_tile(rect, int(tile["fish"]), int(tile["fish_kind"]))
 			elif tile["kind"] == TileKind.ROAD:
 				_draw_road_tile(rect)
+			elif tile["kind"] == TileKind.EXPANSION:
+				_draw_expansion_tile(rect)
 			else:
 				_draw_land_tile(rect, int(tile["building"]))
 
@@ -1168,6 +1218,13 @@ func _draw_road_tile(rect: Rect2) -> void:
 	draw_rect(rect, Color("#504a45"))
 	draw_line(rect.position + Vector2(0, rect.size.y * 0.5), rect.end - Vector2(0, rect.size.y * 0.5), Color("#e8d28d"), 3.0)
 	draw_line(rect.position + Vector2(8, rect.size.y * 0.5), rect.position + Vector2(rect.size.x - 8, rect.size.y * 0.5), Color("#2c2927"), 1.0)
+
+
+func _draw_expansion_tile(rect: Rect2) -> void:
+	draw_rect(rect, Color("#4d5660"))
+	draw_line(rect.position + Vector2(8, 8), rect.end - Vector2(8, 8), Color("#9aa6b2"), 2.0)
+	draw_line(rect.position + Vector2(rect.size.x - 8, 8), rect.position + Vector2(8, rect.size.y - 8), Color("#9aa6b2"), 2.0)
+	draw_circle(rect.get_center(), 3.0, Color("#c9d2d8"))
 
 
 func _draw_customer_queue() -> void:
@@ -1241,6 +1298,8 @@ func _draw_footer_hint() -> void:
 	var font := get_theme_default_font()
 	var hint := ""
 	match selected_tool:
+		TOOL_EXPAND:
+			hint = "Expand: tap edge ground to buy one land tile."
 		TOOL_MOVE:
 			hint = "Move: tap a building, then an empty land tile."
 		TOOL_REMOVE:
@@ -1283,6 +1342,10 @@ func _selected_tile_text() -> String:
 		return "Tile: water with " + str(tile["fish"]) + " " + _fish_plural(fish_kind, int(tile["fish"])) + ". Yield: " + str(_fish_meat_yield(fish_kind)) + " meat."
 	if tile["kind"] == TileKind.ROAD:
 		return "Tile: road. Markets beside roads sell twice as fast."
+	if tile["kind"] == TileKind.EXPANSION:
+		if _is_land_expansion_unlocked():
+			return "Tile: expansion ground. Use Expand to buy this land for $" + str(COST_EXPAND) + "."
+		return "Tile: expansion ground. Build Storage to unlock land expansion."
 
 	match int(tile["building"]):
 		BuildKind.POOL:

@@ -23,6 +23,7 @@ The current prototype is intentionally small:
 - fish species use different colors and produce different meat yields
 - Net level 2 unlocks silverfish, and the goal line now points toward that progression step
 - catching silverfish unlocks Storage, which increases meat capacity
+- building Storage unlocks Expand, which buys edge ground into buildable land
 
 ## Design Docs
 

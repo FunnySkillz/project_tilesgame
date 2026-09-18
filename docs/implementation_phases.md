@@ -2,6 +2,18 @@
 
 This file tracks how the design plan is being turned into playable builds.
 
+## Tooling And Architecture Notes
+
+Implemented:
+
+- Graphify CLI evaluated locally
+- Graphify limitation for Godot/GDScript documented in `docs/graphify_evaluation.md`
+- generated Graphify output ignored in Git
+
+Decision:
+
+Use Graphify later as a documentation and architecture-map companion, but do not depend on it for GDScript code structure until `.gd` support exists or we add language-neutral architecture sidecars.
+
 ## Phase 1: Fun Core
 
 Status: playable baseline complete.
@@ -78,14 +90,14 @@ Needs:
 - [x] multiple fish types
 - [x] first new building
 - [ ] more buildings
-- [ ] land expansion
+- [x] first land expansion mechanic
 - [ ] first 30-minute goal chain
 
 Next:
 
-- add land expansion
 - turn the current goal line into a fuller first 30-minute goal chain
 - broaden the unlock tree after land expansion gives it more branches
+- consider another building only after the goal chain reveals a clear pressure point
 
 Implemented:
 
@@ -103,6 +115,10 @@ Implemented:
 - Storage building adds meat capacity
 - Storage gets bonus capacity beside markets
 - storage removal and movement are blocked when the building is needed for current meat capacity
+- edge expansion tiles start locked
+- Expand tool unlocks after building Storage
+- expansion converts edge ground into buildable land for money
+- goal and unlock text now guide the player through Storage into land expansion
 
 ## Phase 4: Danger
 
