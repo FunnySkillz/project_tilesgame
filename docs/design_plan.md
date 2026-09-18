@@ -8,12 +8,15 @@ The player fantasy is:
 
 > I built this rough little fishery from nothing, and every tile placement makes it work better.
 
+The stronger visual target is a living coldwater dock settlement: workers hauling fish, buyers walking in, lamps glowing, stalls trading, and the base feeling like a small hard-working community at the edge of dangerous water.
+
 The game should become enjoyable when the player constantly thinks:
 
 - I can make this layout better.
 - One more upgrade will make the loop smoother.
 - I can expand into danger now, or prepare first.
 - This base feels like mine.
+- My people are busy, useful, and worth protecting.
 
 ## Main Fun Pillars
 
@@ -48,7 +51,22 @@ Good placement should improve efficiency:
 
 The player should slowly learn better layouts and want to rebuild.
 
-### 3. Meaningful Upgrades
+### 3. Living People And Trade
+
+The base should feel populated early.
+
+People are not only decoration:
+
+- workers can be selected, moved, and assigned
+- fishers catch and carry fish
+- cutters, smokers, and markets work better with staff
+- buyers physically arrive, wait, buy, and leave
+- more successful selling attracts more foot traffic
+- later, different buyers should want different goods
+
+The player should read the economy by watching people move through the fishery.
+
+### 4. Meaningful Upgrades
 
 Upgrades should change how the game feels, not only increase numbers.
 
@@ -65,7 +83,7 @@ Examples:
 
 Each upgrade should answer a real pain point the player has felt.
 
-### 4. Pressure Without Annoyance
+### 5. Pressure Without Annoyance
 
 The game needs tension, but not constant punishment.
 
@@ -80,7 +98,7 @@ Pressure systems can include:
 
 The player should feel challenged, not bullied. Early pressure should be soft, readable, and recoverable.
 
-### 5. Discovery
+### 6. Discovery
 
 New zones and fish types should unlock new possibilities.
 
@@ -248,7 +266,16 @@ Customer types:
 - doctors: buy rare organs or oil
 - truck buyers: request large timed orders
 
-Markets should not instantly sell everything forever. Demand, waiting, and preferences make production planning matter.
+Markets should not instantly sell everything forever. Demand, waiting, movement, staffing, and preferences make production planning matter.
+
+Buyers should become more visible over time:
+
+- early buyers are simple villagers buying any meat
+- cooks prefer smoked meat or high-value fish
+- merchants buy in small bulk batches
+- later trucks create timed orders
+
+Selling should feel like people coming to the dock, not invisible conversion into money.
 
 ### Progression Tracks
 
@@ -390,7 +417,20 @@ Needs:
 - land expansion
 - first 30-minute goal chain
 
-### Milestone 4: Danger
+### Milestone 4: Living Base And Demand
+
+Goal: make the base feel populated and interactive.
+
+Needs:
+
+- selectable workers
+- worker assignment
+- visible buyer movement
+- buyer patience and preferences
+- staffed markets
+- richer selling moments
+
+### Milestone 5: Danger
 
 Goal: make the world memorable.
 
@@ -402,7 +442,7 @@ Needs:
 - repair mechanic
 - rare monster resources
 
-### Milestone 5: Automation And Trucks
+### Milestone 6: Automation And Trucks
 
 Goal: make the base feel like a growing business.
 
@@ -414,7 +454,7 @@ Needs:
 - advanced machines
 - production planning
 
-### Milestone 6: Mobile Release Polish
+### Milestone 7: Mobile Release Polish
 
 Goal: make it feel like a real phone game.
 

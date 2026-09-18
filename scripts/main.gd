@@ -8,9 +8,10 @@ enum FishKind { MINNOW, CARP, SILVERFISH }
 const GRID_W := 8
 const GRID_H := 10
 const WATER_ROWS := 3
-const MAX_CUSTOMERS := 8
+const MAX_CUSTOMERS := 12
 
 const TOOL_CATCH := "catch"
+const TOOL_PEOPLE := "people"
 const TOOL_POOL := "pool"
 const TOOL_CUTTER := "cutter"
 const TOOL_MARKET := "market"
@@ -26,9 +27,17 @@ const COST_MARKET := 20
 const COST_STORAGE := 25
 const COST_SMOKER := 45
 const COST_EXPAND := 35
+const COST_WORKER := 35
+const MAX_WORKERS := 6
 
 const CUSTOMER_PATIENCE_SECONDS := 10.0
 const MARKET_SELL_SECONDS := 1.25
+const CUSTOMER_WALK_SPEED := 2.35
+const WORKER_WALK_SPEED := 2.85
+const WORKER_FISH_SECONDS := 4.5
+const WORKER_POOL_CAPACITY_BONUS := 2
+const WORKER_CUTTER_RATE_BONUS := 0.35
+const WORKER_SMOKER_RATE_BONUS := 0.35
 const SMOKER_SECONDS := 6.0
 const MEAT_PRICE := 6
 const SMOKED_MEAT_PRICE := 14
@@ -64,6 +73,9 @@ var upgrades_bought_total := 0
 var buildings_built_total := 0
 var storage_unlocked := false
 var land_expanded_total := 0
+var customer_agents: Array = []
+var workers: Array = []
+var selected_worker_index := -1
 
 var grid_rect := Rect2()
 var tile_px := 48.0
@@ -83,6 +95,7 @@ var command_buttons: Dictionary = {}
 func _ready() -> void:
 	randomize()
 	_init_tiles()
+	_init_people()
 	_build_ui()
 	_update_hud()
 	set_process(true)
@@ -91,6 +104,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_tick_fish_spawns(delta)
+	_tick_workers(delta)
 	_tick_cutters(delta)
 	_tick_smokers(delta)
 	_tick_customers(delta)
@@ -116,7 +130,7 @@ func _draw() -> void:
 	_calculate_grid_rect()
 	draw_rect(Rect2(Vector2.ZERO, size), Color("#17212b"))
 	_draw_grid()
-	_draw_customer_queue()
+	_draw_people()
 	_draw_footer_hint()
 	_draw_feedback_popups()
 
@@ -153,6 +167,13 @@ func _set_starter_building(cell: Vector2i, building: int) -> void:
 	var tile: Dictionary = tiles[cell.y][cell.x]
 	tile["building"] = building
 	tiles[cell.y][cell.x] = tile
+
+
+func _init_people() -> void:
+	customer_agents.clear()
+	workers.clear()
+	selected_worker_index = -1
+	_spawn_worker(Vector2i(3, 8), false)
 
 
 func _build_ui() -> void:
@@ -217,6 +238,7 @@ func _build_ui() -> void:
 	bottom_box.add_child(actions)
 
 	_add_tool_button(actions, TOOL_CATCH, "Catch", "Tap water to collect fish, or tap a pool to deposit carried fish.")
+	_add_tool_button(actions, TOOL_PEOPLE, "People", "Select a worker, then tap water, a building, or land to assign them.")
 	_add_tool_button(actions, TOOL_POOL, "Pool $10", "Build live fish capacity on land.")
 	_add_tool_button(actions, TOOL_CUTTER, "Cutter $15", "Build processing on land.")
 	_add_tool_button(actions, TOOL_MARKET, "Market $20", "Build selling on land.")
@@ -228,6 +250,7 @@ func _build_ui() -> void:
 	command_buttons["net"] = _add_command_button(actions, "Net +", "Upgrade net", _upgrade_net)
 	command_buttons["pool"] = _add_command_button(actions, "Pool +", "Upgrade pools", _upgrade_pool)
 	command_buttons["cutter"] = _add_command_button(actions, "Cutter +", "Upgrade cutters", _upgrade_cutter)
+	command_buttons["hire"] = _add_command_button(actions, "Hire +", "Hire another worker", _hire_worker)
 	_add_command_button(actions, "Clear", "Clear current tool", _select_catch)
 
 
@@ -268,6 +291,7 @@ func _add_command_button(parent: Control, text: String, tooltip: String, callabl
 
 func _select_catch() -> void:
 	_cancel_move_if_needed()
+	selected_worker_index = -1
 	selected_tool = TOOL_CATCH
 	status_text = "Catch selected."
 	_update_tool_buttons()
@@ -290,6 +314,8 @@ func _try_handle_tap(position: Vector2) -> void:
 	match selected_tool:
 		TOOL_CATCH:
 			_use_catch_tool(cell)
+		TOOL_PEOPLE:
+			_use_people_tool(cell)
 		TOOL_POOL:
 			_try_build(cell, BuildKind.POOL, COST_POOL, "pool")
 		TOOL_CUTTER:
@@ -346,6 +372,29 @@ func _use_catch_tool(cell: Vector2i) -> void:
 		return
 
 	status_text = "Catch works on water, or on pools when carrying fish."
+
+
+func _use_people_tool(cell: Vector2i) -> void:
+	var worker_index := _worker_index_at_cell(cell)
+	if worker_index >= 0:
+		selected_worker_index = worker_index
+		status_text = _worker_name(worker_index) + " selected. Tap water, a building, or land to assign work."
+		return
+
+	if selected_worker_index < 0 or selected_worker_index >= workers.size():
+		status_text = "Tap a worker first, then tap water, a building, or land to assign them."
+		return
+	if not _is_valid_worker_assignment(cell):
+		status_text = "Workers cannot be assigned to locked expansion ground."
+		return
+
+	var worker: Dictionary = workers[selected_worker_index]
+	worker["assigned"] = cell
+	worker["target"] = Vector2(cell.x, cell.y)
+	worker["work_timer"] = 0.5
+	workers[selected_worker_index] = worker
+	status_text = _worker_name(selected_worker_index) + " assigned. " + _worker_assignment_hint(cell)
+	_add_popup_for_cell(cell, "Assigned", Color("#f2d16b"))
 
 
 func _try_build(cell: Vector2i, building: int, cost: int, label: String) -> void:
@@ -495,6 +544,81 @@ func _upgrade_cutter() -> void:
 	_update_hud()
 
 
+func _hire_worker() -> void:
+	if workers.size() >= MAX_WORKERS:
+		status_text = "Worker cap reached. Later housing will raise the people limit."
+		return
+	if money < COST_WORKER:
+		status_text = "Need $" + str(COST_WORKER) + " to hire a worker."
+		return
+
+	money -= COST_WORKER
+	var spawn_cell := Vector2i(clamp(3 + workers.size(), 0, GRID_W - 1), GRID_H - 2)
+	_spawn_worker(spawn_cell, true)
+	selected_tool = TOOL_PEOPLE
+	selected_worker_index = workers.size() - 1
+	status_text = _worker_name(selected_worker_index) + " hired. Tap a work tile to assign them."
+	_add_popup_for_cell(spawn_cell, "Worker +1", Color("#f2d16b"))
+	_update_hud()
+
+
+func _spawn_worker(cell: Vector2i, paid: bool) -> void:
+	var worker_name := _worker_name(workers.size())
+	workers.append({
+		"name": worker_name,
+		"pos": Vector2(cell.x, cell.y),
+		"target": Vector2(cell.x, cell.y),
+		"assigned": cell,
+		"work_timer": randf_range(0.5, WORKER_FISH_SECONDS),
+		"paid": paid
+	})
+
+
+func _tick_workers(delta: float) -> void:
+	for i in workers.size():
+		var worker: Dictionary = workers[i]
+		var pos: Vector2 = worker["pos"]
+		var target: Vector2 = worker["target"]
+		worker["pos"] = _move_grid_position(pos, target, WORKER_WALK_SPEED * delta)
+		var next_pos: Vector2 = worker["pos"]
+		if _agent_reached(next_pos, target):
+			worker = _tick_worker_job(i, worker, delta)
+		workers[i] = worker
+
+
+func _tick_worker_job(worker_index: int, worker: Dictionary, delta: float) -> Dictionary:
+	var assigned: Vector2i = worker["assigned"]
+	if assigned.x < 0 or assigned.y < 0 or assigned.x >= GRID_W or assigned.y >= GRID_H:
+		return worker
+
+	var tile: Dictionary = tiles[assigned.y][assigned.x]
+	if tile["kind"] != TileKind.WATER:
+		return worker
+
+	worker["work_timer"] = float(worker["work_timer"]) - delta
+	if float(worker["work_timer"]) > 0.0:
+		return worker
+	worker["work_timer"] = WORKER_FISH_SECONDS
+
+	if tile["fish"] <= 0:
+		return worker
+	var room := _pool_capacity() - _live_fish_total()
+	if room <= 0:
+		return worker
+
+	var caught: int = min(1, int(tile["fish"]), room)
+	var fish_kind := int(tile["fish_kind"])
+	tile["fish"] = int(tile["fish"]) - caught
+	tiles[assigned.y][assigned.x] = tile
+	_add_fish_to_stock(live_fish_stock, fish_kind, caught)
+	fish_caught_total += caught
+	fish_stored_total += caught
+	_add_fish_to_stock(fish_caught_by_kind, fish_kind, caught)
+	status_text = _worker_name(worker_index) + " carried " + _fish_name(fish_kind) + " straight to the pools." + _maybe_unlock_storage(fish_kind)
+	_add_popup_for_cell(assigned, _worker_name(worker_index) + " +" + str(caught), _fish_color(fish_kind))
+	return worker
+
+
 func _tick_fish_spawns(delta: float) -> void:
 	for y in WATER_ROWS:
 		for x in GRID_W:
@@ -564,61 +688,142 @@ func _tick_smokers(delta: float) -> void:
 func _tick_customers(delta: float) -> void:
 	customer_timer -= delta
 	if customer_timer <= 0.0:
-		customers_waiting = min(MAX_CUSTOMERS, customers_waiting + 1)
-		customer_timer = randf_range(2.8, 4.6)
-		if customers_waiting == 1:
-			customer_patience_timer = CUSTOMER_PATIENCE_SECONDS
+		if customer_agents.size() < MAX_CUSTOMERS:
+			_spawn_customer()
+		customer_timer = _next_customer_seconds()
 
-	_tick_customer_patience(delta)
+	_tick_customer_agents(delta)
 
 	market_sell_timer -= delta
 	if market_sell_timer > 0.0:
+		_update_customer_counts()
 		return
 	market_sell_timer = MARKET_SELL_SECONDS
 
 	var sales_capacity := _market_sales_capacity()
-	if sales_capacity <= 0 or customers_waiting <= 0 or (meat <= 0 and smoked_meat <= 0):
+	var waiting_indices := _waiting_customer_indices()
+	if sales_capacity <= 0 or waiting_indices.is_empty() or (meat <= 0 and smoked_meat <= 0):
+		_update_customer_counts()
 		return
 
-	var sold_smoked: int = min(smoked_meat, sales_capacity, customers_waiting)
-	var remaining_capacity: int = sales_capacity - sold_smoked
-	var remaining_customers: int = customers_waiting - sold_smoked
-	var sold_meat: int = min(meat, remaining_capacity, remaining_customers)
-	var earned := sold_smoked * SMOKED_MEAT_PRICE + sold_meat * MEAT_PRICE
+	var sold_smoked := 0
+	var sold_meat := 0
+	var earned := 0
+	var served := 0
+	for customer_index in waiting_indices:
+		if served >= sales_capacity:
+			break
+		if smoked_meat > 0:
+			smoked_meat -= 1
+			sold_smoked += 1
+			smoked_meat_sold_total += 1
+			earned += SMOKED_MEAT_PRICE
+		elif meat > 0:
+			meat -= 1
+			sold_meat += 1
+			meat_sold_total += 1
+			earned += MEAT_PRICE
+		else:
+			break
+
+		var customer: Dictionary = customer_agents[int(customer_index)]
+		customer["state"] = "leaving_happy"
+		customer["target"] = customer["exit"]
+		customer["patience"] = CUSTOMER_PATIENCE_SECONDS
+		customer_agents[int(customer_index)] = customer
+		served += 1
+
 	if earned <= 0:
+		_update_customer_counts()
 		return
 
-	smoked_meat -= sold_smoked
-	meat -= sold_meat
-	customers_waiting -= sold_smoked + sold_meat
 	money += earned
-	meat_sold_total += sold_meat
-	smoked_meat_sold_total += sold_smoked
-
 	var sold_parts: Array = []
 	if sold_smoked > 0:
 		sold_parts.append(str(sold_smoked) + " smoked meat")
 	if sold_meat > 0:
 		sold_parts.append(str(sold_meat) + " meat")
-	status_text = "Sold " + " and ".join(sold_parts) + " for $" + str(earned) + "."
+	status_text = "Served " + str(served) + " buyers: " + " and ".join(sold_parts) + " for $" + str(earned) + "."
 	_add_popup("+$" + str(earned), _building_center(BuildKind.MARKET), Color("#b7ef8a"))
-	customer_patience_timer = CUSTOMER_PATIENCE_SECONDS
+	_update_customer_counts()
 
 
-func _tick_customer_patience(delta: float) -> void:
-	if customers_waiting <= 0:
-		customer_patience_timer = CUSTOMER_PATIENCE_SECONDS
-		return
+func _spawn_customer() -> void:
+	var spawn_cell := Vector2i(randi_range(0, GRID_W - 1), GRID_H - 1)
+	var target_cell := _customer_target_cell()
+	customer_agents.append({
+		"pos": Vector2(spawn_cell.x, spawn_cell.y),
+		"target": Vector2(target_cell.x, target_cell.y),
+		"exit": Vector2(spawn_cell.x, spawn_cell.y),
+		"state": "arriving",
+		"patience": CUSTOMER_PATIENCE_SECONDS
+	})
 
-	customer_patience_timer -= delta
-	if customer_patience_timer > 0.0:
-		return
 
-	customers_waiting -= 1
-	customers_lost += 1
-	customer_patience_timer = CUSTOMER_PATIENCE_SECONDS
-	status_text = "A customer left hungry. Add meat stock or move markets beside roads."
-	_add_popup("-customer", _building_center(BuildKind.MARKET), Color("#ff8f7a"))
+func _tick_customer_agents(delta: float) -> void:
+	for i in range(customer_agents.size() - 1, -1, -1):
+		var customer: Dictionary = customer_agents[i]
+		var pos: Vector2 = customer["pos"]
+		var target: Vector2 = customer["target"]
+		customer["pos"] = _move_grid_position(pos, target, CUSTOMER_WALK_SPEED * delta)
+		var next_pos: Vector2 = customer["pos"]
+
+		if str(customer["state"]) == "arriving" and _agent_reached(next_pos, target):
+			customer["state"] = "waiting"
+			customer["patience"] = CUSTOMER_PATIENCE_SECONDS
+		elif str(customer["state"]) == "waiting":
+			customer["patience"] = float(customer["patience"]) - delta
+			if float(customer["patience"]) <= 0.0:
+				customer["state"] = "leaving_angry"
+				customer["target"] = customer["exit"]
+				customers_lost += 1
+				status_text = "A buyer left hungry. Add market staff or keep goods ready."
+				_add_popup("-buyer", _building_center(BuildKind.MARKET), Color("#ff8f7a"))
+		elif str(customer["state"]).begins_with("leaving") and _agent_reached(next_pos, target):
+			customer_agents.remove_at(i)
+			continue
+
+		customer_agents[i] = customer
+
+
+func _next_customer_seconds() -> float:
+	var pull := float(_building_count(BuildKind.MARKET)) * 0.25
+	pull += float(_worker_count_assigned_to_building(BuildKind.MARKET)) * 0.2
+	if _is_smoker_unlocked():
+		pull += 0.2
+	return max(1.15, randf_range(2.4, 4.1) - pull)
+
+
+func _customer_target_cell() -> Vector2i:
+	var markets := _building_cells(BuildKind.MARKET)
+	if markets.is_empty():
+		return Vector2i(GRID_W - 1, GRID_H - 1)
+	return markets[randi_range(0, markets.size() - 1)]
+
+
+func _waiting_customer_indices() -> Array:
+	var result: Array = []
+	for i in customer_agents.size():
+		var customer: Dictionary = customer_agents[i]
+		if str(customer["state"]) == "waiting":
+			result.append(i)
+	return result
+
+
+func _update_customer_counts() -> void:
+	customers_waiting = _waiting_customer_indices().size()
+	customer_patience_timer = _lowest_waiting_patience()
+
+
+func _lowest_waiting_patience() -> float:
+	var lowest := CUSTOMER_PATIENCE_SECONDS
+	var found := false
+	for customer in customer_agents:
+		if str(customer["state"]) != "waiting":
+			continue
+		found = true
+		lowest = min(lowest, float(customer["patience"]))
+	return lowest if found else CUSTOMER_PATIENCE_SECONDS
 
 
 func _building_count(building: int) -> int:
@@ -627,6 +832,50 @@ func _building_count(building: int) -> int:
 		for tile in row:
 			if tile["building"] == building:
 				count += 1
+	return count
+
+
+func _building_cells(building: int) -> Array:
+	var result: Array = []
+	for y in GRID_H:
+		for x in GRID_W:
+			var tile: Dictionary = tiles[y][x]
+			if tile["building"] == building:
+				result.append(Vector2i(x, y))
+	return result
+
+
+func _move_grid_position(pos: Vector2, target: Vector2, distance: float) -> Vector2:
+	var delta := target - pos
+	if delta.length() <= distance or delta.length() <= 0.001:
+		return target
+	return pos + delta.normalized() * distance
+
+
+func _agent_reached(pos: Vector2, target: Vector2) -> bool:
+	return pos.distance_to(target) <= 0.03
+
+
+func _worker_count_assigned_to(cell: Vector2i) -> int:
+	var count := 0
+	for worker in workers:
+		var assigned: Vector2i = worker["assigned"]
+		var pos: Vector2 = worker["pos"]
+		if assigned == cell and _agent_reached(pos, Vector2(cell.x, cell.y)):
+			count += 1
+	return count
+
+
+func _worker_count_assigned_to_building(building: int) -> int:
+	var count := 0
+	for worker in workers:
+		var assigned: Vector2i = worker["assigned"]
+		if assigned.x < 0 or assigned.y < 0 or assigned.x >= GRID_W or assigned.y >= GRID_H:
+			continue
+		var tile: Dictionary = tiles[assigned.y][assigned.x]
+		var pos: Vector2 = worker["pos"]
+		if tile["building"] == building and _agent_reached(pos, Vector2(assigned.x, assigned.y)):
+			count += 1
 	return count
 
 
@@ -644,6 +893,7 @@ func _pool_capacity_at(cell: Vector2i) -> int:
 	var capacity := 4 + pool_level * 2
 	if _has_adjacent_tile_kind(cell, TileKind.WATER):
 		capacity += 2
+	capacity += _worker_count_assigned_to(cell) * WORKER_POOL_CAPACITY_BONUS
 	return capacity
 
 
@@ -759,6 +1009,7 @@ func _cutter_rate_at(cell: Vector2i) -> float:
 	var rate := 1.0
 	if _has_adjacent_building(cell, BuildKind.POOL):
 		rate += 0.5
+	rate += float(_worker_count_assigned_to(cell)) * WORKER_CUTTER_RATE_BONUS
 	return rate
 
 
@@ -784,6 +1035,7 @@ func _smoker_rate_at(cell: Vector2i) -> float:
 		rate += 0.45
 	if _has_adjacent_building(cell, BuildKind.STORAGE):
 		rate += 0.25
+	rate += float(_worker_count_assigned_to(cell)) * WORKER_SMOKER_RATE_BONUS
 	return rate
 
 
@@ -803,6 +1055,7 @@ func _market_capacity_at(cell: Vector2i) -> int:
 	var capacity := 1
 	if _has_adjacent_tile_kind(cell, TileKind.ROAD):
 		capacity += 1
+	capacity += _worker_count_assigned_to(cell)
 	return capacity
 
 
@@ -926,6 +1179,52 @@ func _stock_summary(stock: Array) -> String:
 	return "[" + " ".join(parts) + "]"
 
 
+func _worker_name(worker_index: int) -> String:
+	var names: Array = ["Mara", "Ivo", "Nia", "Toren", "Sella", "Bran"]
+	if worker_index >= 0 and worker_index < names.size():
+		return names[worker_index]
+	return "Worker " + str(worker_index + 1)
+
+
+func _worker_index_at_cell(cell: Vector2i) -> int:
+	for i in workers.size():
+		var worker: Dictionary = workers[i]
+		var pos: Vector2 = worker["pos"]
+		var assigned: Vector2i = worker["assigned"]
+		if assigned == cell:
+			return i
+		if pos.distance_to(Vector2(cell.x, cell.y)) <= 0.55:
+			return i
+	return -1
+
+
+func _is_valid_worker_assignment(cell: Vector2i) -> bool:
+	var tile: Dictionary = tiles[cell.y][cell.x]
+	return tile["kind"] != TileKind.EXPANSION
+
+
+func _worker_assignment_hint(cell: Vector2i) -> String:
+	var tile: Dictionary = tiles[cell.y][cell.x]
+	if tile["kind"] == TileKind.WATER:
+		return "They will catch fish and carry them directly to pools."
+	if tile["kind"] == TileKind.ROAD:
+		return "They will stand by on the road until you assign a job."
+
+	match int(tile["building"]):
+		BuildKind.POOL:
+			return "Assigned pool workers add +" + str(WORKER_POOL_CAPACITY_BONUS) + " live capacity."
+		BuildKind.CUTTER:
+			return "Assigned cutter workers speed up processing."
+		BuildKind.MARKET:
+			return "Assigned market workers serve more buyers and attract customers faster."
+		BuildKind.STORAGE:
+			return "Storage workers are standing by for future hauling jobs."
+		BuildKind.SMOKER:
+			return "Assigned smoker workers speed up smoked meat production."
+		_:
+			return "They will stand by on this tile."
+
+
 func _format_ratio(value: float) -> String:
 	return "%.1f" % value
 
@@ -968,6 +1267,8 @@ func _tool_label(tool: String) -> String:
 	match tool:
 		TOOL_CATCH:
 			return "Catch"
+		TOOL_PEOPLE:
+			return "People"
 		TOOL_POOL:
 			return "Pool $" + str(COST_POOL)
 		TOOL_CUTTER:
@@ -1222,7 +1523,7 @@ func _goal_text() -> String:
 		GoalStep.PROCESS:
 			return "Goal: Let the cutter produce 2 meat. " + _progress_text(meat_processed_total, 2)
 		GoalStep.SELL:
-			return "Goal: Sell 2 meat to customers. " + _progress_text(meat_sold_total, 2)
+			return "Goal: Sell 2 meat to buyers. " + _progress_text(meat_sold_total, 2)
 		GoalStep.UPGRADE:
 			return "Goal: Buy any upgrade. " + _progress_text(upgrades_bought_total, 1)
 		GoalStep.BUILD:
@@ -1256,7 +1557,7 @@ func _unlock_text() -> String:
 		return "Unlocks: Expand land and prove steady sales to unlock Smoker."
 	if _building_count(BuildKind.SMOKER) <= 0:
 		return "Unlocks: Smoker available. Turns 2 meat into smoked meat worth $" + str(SMOKED_MEAT_PRICE) + "."
-	return "Unlocks: Smoker branch active. Next phase adds cold and danger."
+	return "Unlocks: assign workers to water, pools, cutters, markets, or smokers."
 
 
 func _progress_text(current: int, target: int) -> String:
@@ -1304,7 +1605,7 @@ func _update_hud() -> void:
 	var smoked_text := ""
 	if _is_smoker_unlocked() or smoked_meat > 0:
 		smoked_text = "   Smoke:%d/%d" % [smoked_meat, _smoked_meat_capacity()]
-	hud_label.text = "Coldwater Catch\n$%d   Carry:%d %s   Live:%d/%d %s   Meat:%d/%d%s\nQueue:%d   Lost:%d   Patience:%ds   Land:%d\nNet %d   Pool %d   Cutter %d" % [
+	hud_label.text = "Coldwater Catch\n$%d   Carry:%d %s   Live:%d/%d %s   Meat:%d/%d%s\nBuyers:%d/%d   Queue:%d   Lost:%d   Patience:%ds   Crew:%d/%d\nNet %d   Pool %d   Cutter %d   Land:%d" % [
 		money,
 		_carried_fish_total(),
 		_stock_summary(carried_fish_stock),
@@ -1314,13 +1615,17 @@ func _update_hud() -> void:
 		meat,
 		_meat_capacity(),
 		smoked_text,
+		customer_agents.size(),
+		MAX_CUSTOMERS,
 		customers_waiting,
 		customers_lost,
 		int(ceil(customer_patience_timer)) if customers_waiting > 0 else int(CUSTOMER_PATIENCE_SECONDS),
-		land_expanded_total,
+		workers.size(),
+		MAX_WORKERS,
 		net_level,
 		pool_level,
-		cutter_level
+		cutter_level,
+		land_expanded_total
 	]
 	goal_label.text = _goal_text()
 	unlock_label.text = _unlock_text()
@@ -1349,10 +1654,14 @@ func _update_tool_buttons() -> void:
 		var cutter_button: Button = command_buttons["cutter"]
 		cutter_button.text = "Cutter $" + str(_cutter_upgrade_cost())
 		cutter_button.modulate = _affordability_color(_cutter_upgrade_cost())
+	if command_buttons.has("hire"):
+		var hire_button: Button = command_buttons["hire"]
+		hire_button.text = "Hire $" + str(COST_WORKER) if workers.size() < MAX_WORKERS else "Crew full"
+		hire_button.modulate = _affordability_color(COST_WORKER) if workers.size() < MAX_WORKERS else Color("#6f7782")
 
 
 func _calculate_grid_rect() -> void:
-	var top_margin := 206.0
+	var top_margin := 222.0
 	var bottom_margin := 272.0
 	var inner_width: float = max(1.0, size.x - 24.0)
 	var inner_height: float = max(1.0, size.y - top_margin - bottom_margin)
@@ -1426,23 +1735,44 @@ func _draw_expansion_tile(rect: Rect2) -> void:
 	draw_circle(rect.get_center(), 3.0, Color("#c9d2d8"))
 
 
-func _draw_customer_queue() -> void:
-	if customers_waiting <= 0:
-		return
+func _draw_people() -> void:
+	for customer in customer_agents:
+		var color := Color("#9fe4dd")
+		var state := str(customer["state"])
+		if state == "waiting":
+			var patience_ratio: float = clamp(float(customer["patience"]) / CUSTOMER_PATIENCE_SECONDS, 0.0, 1.0)
+			color = Color("#b7ef8a") if patience_ratio > 0.5 else Color("#ffb36b")
+			if patience_ratio < 0.25:
+				color = Color("#ff8f7a")
+		elif state == "leaving_happy":
+			color = Color("#b7ef8a")
+		elif state == "leaving_angry":
+			color = Color("#ff8f7a")
+		var customer_pos: Vector2 = customer["pos"]
+		_draw_person(_agent_screen_pos(customer_pos), color, false, "")
 
-	var patience_ratio: float = clamp(customer_patience_timer / CUSTOMER_PATIENCE_SECONDS, 0.0, 1.0)
-	var color: Color = Color("#b7ef8a") if patience_ratio > 0.5 else Color("#ffb36b")
-	if patience_ratio < 0.25:
-		color = Color("#ff8f7a")
+	for i in workers.size():
+		var worker: Dictionary = workers[i]
+		var worker_pos: Vector2 = worker["pos"]
+		_draw_person(_agent_screen_pos(worker_pos), Color("#f2d16b"), i == selected_worker_index, "W")
 
-	var shown: int = min(customers_waiting, MAX_CUSTOMERS)
-	for i: int in shown:
-		var road_x: int = i % GRID_W
-		var row_offset: int = int(floor(float(i) / float(GRID_W)))
-		var rect := _cell_rect(Vector2i(road_x, GRID_H - 1))
-		var center := rect.get_center() + Vector2(0, -float(row_offset) * 9.0)
-		draw_circle(center + Vector2(0, -5), tile_px * 0.08, color)
-		draw_rect(Rect2(center + Vector2(-tile_px * 0.06, -1), Vector2(tile_px * 0.12, tile_px * 0.13)), color)
+
+func _agent_screen_pos(pos: Vector2) -> Vector2:
+	return grid_rect.position + Vector2((pos.x + 0.5) * tile_px, (pos.y + 0.5) * tile_px)
+
+
+func _draw_person(center: Vector2, body_color: Color, selected: bool, label: String) -> void:
+	var head_radius: float = max(3.0, tile_px * 0.075)
+	var body_size := Vector2(tile_px * 0.16, tile_px * 0.18)
+	if selected:
+		draw_circle(center, tile_px * 0.22, Color("#f2d16b"))
+		draw_circle(center, tile_px * 0.18, Color("#17212b"))
+	draw_circle(center + Vector2(0, -tile_px * 0.12), head_radius, Color("#f5efe1"))
+	draw_rect(Rect2(center - body_size * 0.5 + Vector2(0, tile_px * 0.03), body_size), body_color)
+	draw_line(center + Vector2(-body_size.x * 0.55, tile_px * 0.02), center + Vector2(-body_size.x, tile_px * 0.12), body_color, 2.0)
+	draw_line(center + Vector2(body_size.x * 0.55, tile_px * 0.02), center + Vector2(body_size.x, tile_px * 0.12), body_color, 2.0)
+	if label != "":
+		draw_string(get_theme_default_font(), center + Vector2(-tile_px * 0.12, tile_px * 0.28), label, HORIZONTAL_ALIGNMENT_CENTER, tile_px * 0.24, 11, Color("#17212b"))
 
 
 func _draw_land_tile(rect: Rect2, building: int) -> void:
@@ -1506,6 +1836,11 @@ func _draw_footer_hint() -> void:
 	var font := get_theme_default_font()
 	var hint := ""
 	match selected_tool:
+		TOOL_PEOPLE:
+			if selected_worker_index >= 0 and selected_worker_index < workers.size():
+				hint = "People: " + _worker_name(selected_worker_index) + " selected. Tap water, a building, or land."
+			else:
+				hint = "People: tap a worker, then tap water, a building, or land."
 		TOOL_EXPAND:
 			hint = "Expand: tap edge ground to buy one land tile."
 		TOOL_MOVE:
@@ -1540,14 +1875,25 @@ func _cell_rect(cell: Vector2i) -> Rect2:
 
 func _selected_tile_text() -> String:
 	if selected_cell.x < 0:
-		return "Tile: tap any water, pool, cutter, or market to inspect it."
+		return "Tile: tap water, people, pools, cutters, or markets to inspect them."
+
+	var worker_index := _worker_index_at_cell(selected_cell)
+	if worker_index >= 0:
+		var worker: Dictionary = workers[worker_index]
+		var assigned: Vector2i = worker["assigned"]
+		var assignment := "standing by"
+		if assigned != selected_cell:
+			assignment = "walking to " + str(assigned)
+		else:
+			assignment = _worker_assignment_hint(assigned)
+		return "Person: " + _worker_name(worker_index) + ". " + assignment
 
 	var tile: Dictionary = tiles[selected_cell.y][selected_cell.x]
 	if tile["kind"] == TileKind.WATER:
 		if tile["fish"] <= 0:
 			return "Tile: water. Fish will return soon."
 		var fish_kind := int(tile["fish_kind"])
-		return "Tile: water with " + str(tile["fish"]) + " " + _fish_plural(fish_kind, int(tile["fish"])) + ". Yield: " + str(_fish_meat_yield(fish_kind)) + " meat."
+		return "Tile: water with " + str(tile["fish"]) + " " + _fish_plural(fish_kind, int(tile["fish"])) + ". Workers assigned here auto-carry fish to pools."
 	if tile["kind"] == TileKind.ROAD:
 		return "Tile: road. Markets beside roads sell twice as fast."
 	if tile["kind"] == TileKind.EXPANSION:
@@ -1557,15 +1903,15 @@ func _selected_tile_text() -> String:
 
 	match int(tile["building"]):
 		BuildKind.POOL:
-			return "Tile: pool. This pool holds " + str(_pool_capacity_at(selected_cell)) + "; total live capacity " + str(_pool_capacity()) + "."
+			return "Tile: pool. Holds " + str(_pool_capacity_at(selected_cell)) + "; staff " + str(_worker_count_assigned_to(selected_cell)) + "; total live capacity " + str(_pool_capacity()) + "."
 		BuildKind.CUTTER:
-			return "Tile: cutter. Rate x" + _format_ratio(_cutter_rate_at(selected_cell)) + "; faster beside pools."
+			return "Tile: cutter. Rate x" + _format_ratio(_cutter_rate_at(selected_cell)) + "; staff " + str(_worker_count_assigned_to(selected_cell)) + "; faster beside pools."
 		BuildKind.MARKET:
-			return "Tile: market. Sales " + str(_market_capacity_at(selected_cell)) + "/tick; road access doubles it."
+			return "Tile: market. Sales " + str(_market_capacity_at(selected_cell)) + "/tick; staff " + str(_worker_count_assigned_to(selected_cell)) + "; road access doubles it."
 		BuildKind.STORAGE:
 			return "Tile: storage. Adds " + str(_storage_capacity_at(selected_cell)) + " meat capacity and smoked goods room; better beside markets."
 		BuildKind.SMOKER:
-			return "Tile: smoker. Rate x" + _format_ratio(_smoker_rate_at(selected_cell)) + "; capacity +" + str(_smoker_capacity_at(selected_cell)) + "; wants cutters and storage nearby."
+			return "Tile: smoker. Rate x" + _format_ratio(_smoker_rate_at(selected_cell)) + "; staff " + str(_worker_count_assigned_to(selected_cell)) + "; capacity +" + str(_smoker_capacity_at(selected_cell)) + "."
 		_:
 			var options := "pool, cutter, market"
 			if _is_storage_unlocked():

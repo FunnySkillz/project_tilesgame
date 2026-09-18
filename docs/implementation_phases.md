@@ -66,7 +66,7 @@ Implemented:
 - button affordability tinting and dynamic upgrade prices
 - timed market sales instead of instant frame-by-frame selling
 - customer patience timer and lost-customer pressure
-- visible waiting customers on the road row
+- initial visible waiting customers on the road row, later replaced by Phase 4 buyer agents
 
 Next:
 
@@ -96,7 +96,7 @@ Needs:
 Next:
 
 - tune the first progression branch after playtesting for pacing and reward values
-- begin Phase 4 with a soft cold-pressure system before adding monster attacks
+- build the living-base layer before adding cold and monster pressure
 
 Implemented:
 
@@ -127,7 +127,45 @@ Implemented:
 - storage and smoker movement/removal respect smoked meat capacity
 - HUD, inspector, labels, and goal text support the smoked meat branch
 
-## Phase 4: Danger
+## Phase 4: Living Base And Demand
+
+Status: first playable slice complete.
+
+Goal: make the fishery feel like a busy, interactive place instead of only a resource board.
+
+Needs:
+
+- [x] visible buyer agents walking to markets
+- [x] visible worker agents on the grid
+- [x] People tool for selecting and assigning workers
+- [x] hire-worker command and crew cap
+- [x] worker jobs that affect production
+- [ ] richer buyer types and preferences
+- [ ] trade stalls or order board
+- [ ] more expressive worker/customer animations
+- [ ] clearer paths, docks, and walkable plaza layout
+
+Implemented:
+
+- buyers now spawn as moving people, walk to markets, wait, buy, and leave
+- buyer patience is tracked per person instead of only as a shared queue timer
+- more markets and staffed markets increase buyer flow
+- one starter worker appears on the board
+- workers can be hired up to the current crew cap
+- People tool lets the player select a worker and assign them to water, land, or buildings
+- water workers catch fish and carry them directly to pools
+- pool workers add live-fish capacity
+- cutter, market, and smoker workers boost production or sales capacity
+- HUD, tile inspector, footer hints, and placeholders now support the people layer
+
+Next:
+
+- add buyer types such as villagers, cooks, and merchants
+- give buyers visible wants so smoked meat and regular meat create different selling choices
+- add a simple order board or stall system for larger sales moments
+- improve the board shape toward a dock/plaza fishery layout
+
+## Phase 5: Danger
 
 Status: planned.
 
@@ -148,7 +186,7 @@ Next:
 - unlock the first heater as the clear counterplay
 - keep cold pressure soft and reversible before monster attacks arrive
 
-## Phase 5: Automation And Trucks
+## Phase 6: Automation And Trucks
 
 Status: planned.
 
@@ -162,7 +200,7 @@ Needs:
 - advanced machines
 - production planning
 
-## Phase 6: Mobile Release Polish
+## Phase 7: Mobile Release Polish
 
 Status: planned.
 

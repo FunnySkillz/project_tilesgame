@@ -58,6 +58,18 @@ Needed assets:
 - warning markers
 - damage and repair icons
 
+### Living Base Pass
+
+Generate this before final danger polish if the people layer becomes the main feel target:
+
+- worker figure variants
+- buyer figure variants
+- staffed market/stall props
+- hand cart or carrying pose
+- dock lamps and signboards
+- crates, fish racks, and small trade details
+- simple path/plaza overlays so people movement reads clearly
+
 ### Phase 5: Automation And Trucks
 
 Generate logistics assets.
@@ -100,8 +112,8 @@ Avoid tiny detail. Every asset must read at phone size.
 
 Do not generate final textures yet.
 
-Phase 2 layout mechanics are readable enough to support a first texture pass, and Phase 3 now has fish species, Storage, land expansion, and the Smoker branch. Keep placeholders until the smoked-meat branch is tuned enough to know the first tile atlas size.
+Phase 2 layout mechanics are readable enough to support a first texture pass, and Phase 3 now has fish species, Storage, land expansion, and the Smoker branch. The people layer is now important enough that the first cohesive pack should include workers, buyers, and market-life props, not only tiles and machines.
 
 Next art milestone:
 
-Generate a small prototype texture pack after the early Phase 3 fish/building needs are stable. The first pack should cover water, land, road, expansion ground, pool, cutter, market, storage, smoker, minnow, carp, silverfish, meat, smoked meat, money, and customers.
+Generate a small prototype texture pack after the early people-and-demand loop is stable. The first pack should cover water, land, road, expansion ground, pool, cutter, market, storage, smoker, worker, buyer, minnow, carp, silverfish, meat, smoked meat, money, crates, lamps, and market props.

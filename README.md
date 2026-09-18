@@ -13,11 +13,14 @@ The current prototype is intentionally small:
 - build extra pools, cutters, and markets on land
 - tap a pool with Catch selected to deposit carried fish
 - cutters automatically process live fish into meat
-- markets automatically sell meat to customers
+- markets automatically serve waiting buyers
 - follow the goal line to complete the Phase 1 loop
 - use Move and Remove to improve your tile layout
 - pools work better beside water, cutters work better beside pools, markets work better beside roads
-- customers now wait on the road, lose patience, and leave if meat/market flow is too slow
+- buyers now walk to markets as visible people, wait, buy, and leave
+- use the People tool to select and assign workers
+- hire more workers with the Hire button
+- workers can auto-fish, staff pools, speed cutters/smokers, and serve more market buyers
 - unaffordable build and upgrade buttons are tinted, and upgrade buttons show current prices
 - water now spawns minnow, carp, and later silverfish
 - fish species use different colors and produce different meat yields
