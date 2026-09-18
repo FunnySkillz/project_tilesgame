@@ -6,6 +6,8 @@ enum GoalStep { CATCH, STORE, PROCESS, SELL, UPGRADE, BUILD, NET_TWO, SILVERFISH
 enum FishKind { MINNOW, CARP, SILVERFISH }
 enum BuyerKind { VILLAGER, COOK, MERCHANT }
 
+const FishAgentScript := preload("res://scripts/fishing/FishAgent.gd")
+
 const GRID_W := 8
 const GRID_H := 10
 const WATER_ROWS := 3
@@ -39,6 +41,10 @@ const WORKER_FISH_SECONDS := 4.5
 const WORKER_POOL_CAPACITY_BONUS := 2
 const WORKER_CUTTER_RATE_BONUS := 0.35
 const WORKER_SMOKER_RATE_BONUS := 0.35
+const ACTIVE_FISH_MAX := 18
+const BOAT_SPEED := 2.2
+const BOAT_DOCK_X := 2.5
+const NET_CATCH_RADIUS := 0.34
 const SMOKER_SECONDS := 6.0
 const MEAT_PRICE := 6
 const SMOKED_MEAT_PRICE := 14
@@ -68,7 +74,7 @@ var customer_patience_timer := CUSTOMER_PATIENCE_SECONDS
 var market_sell_timer := MARKET_SELL_SECONDS
 var cutter_progress := 0.0
 var smoker_progress := 0.0
-var status_text := "Tap water to catch fish. The starter fishery can already process and sell."
+var status_text := "Drag on water with Catch to steer the boat. Return to the dock to unload fish."
 var goal_step := GoalStep.CATCH
 var fish_caught_total := 0
 var fish_caught_by_kind: Array = [0, 0, 0]
@@ -94,6 +100,12 @@ var land_expanded_total := 0
 var customer_agents: Array = []
 var workers: Array = []
 var selected_worker_index := -1
+var active_fish_agents: Array = []
+var boat_position := Vector2(BOAT_DOCK_X, float(WATER_ROWS) - 0.25)
+var boat_target := Vector2(BOAT_DOCK_X, float(WATER_ROWS) - 0.25)
+var boat_fish_stock: Array = [0, 0, 0]
+var boat_last_direction := Vector2.DOWN
+var dragging_boat := false
 
 var grid_rect := Rect2()
 var tile_px := 48.0
@@ -113,6 +125,7 @@ var command_buttons: Dictionary = {}
 func _ready() -> void:
 	randomize()
 	_init_tiles()
+	_init_active_fishing()
 	_init_people()
 	_build_ui()
 	_update_hud()
@@ -122,6 +135,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_tick_fish_spawns(delta)
+	_tick_active_fishing(delta)
 	_tick_workers(delta)
 	_tick_cutters(delta)
 	_tick_smokers(delta)
@@ -134,10 +148,22 @@ func _process(delta: float) -> void:
 
 
 func _gui_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-		_try_handle_tap(event.position)
-	elif event is InputEventScreenTouch and event.pressed:
-		_try_handle_tap(event.position)
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			if not _try_start_boat_drag(event.position):
+				_try_handle_tap(event.position)
+		else:
+			dragging_boat = false
+	elif event is InputEventMouseMotion and dragging_boat:
+		_update_boat_drag(event.position)
+	elif event is InputEventScreenTouch:
+		if event.pressed:
+			if not _try_start_boat_drag(event.position):
+				_try_handle_tap(event.position)
+		else:
+			dragging_boat = false
+	elif event is InputEventScreenDrag and dragging_boat:
+		_update_boat_drag(event.position)
 
 
 func _notification(what: int) -> void:
@@ -149,6 +175,7 @@ func _draw() -> void:
 	_calculate_grid_rect()
 	draw_rect(Rect2(Vector2.ZERO, size), Color("#17212b"))
 	_draw_grid()
+	_draw_active_fishing()
 	_draw_people()
 	_draw_dock_order_board()
 	_draw_footer_hint()
@@ -227,6 +254,34 @@ func _set_starter_building(cell: Vector2i, building: int) -> void:
 	tiles[cell.y][cell.x] = tile
 
 
+func _init_active_fishing() -> void:
+	active_fish_agents.clear()
+	boat_position = _boat_home_position()
+	boat_target = boat_position
+	boat_last_direction = Vector2.DOWN
+	boat_fish_stock = [0, 0, 0]
+	for i in ACTIVE_FISH_MAX:
+		_spawn_active_fish()
+
+
+func _spawn_active_fish() -> void:
+	var start_position := Vector2(
+		randf_range(0.35, float(GRID_W) - 0.35),
+		randf_range(0.25, float(WATER_ROWS) - 0.35)
+	)
+	var angle := randf_range(0.0, TAU)
+	var velocity := Vector2(cos(angle), sin(angle)) * randf_range(0.25, 0.55)
+	active_fish_agents.append(FishAgentScript.new().setup(start_position, velocity, _random_fish_kind()))
+
+
+func _boat_home_position() -> Vector2:
+	return Vector2(BOAT_DOCK_X, float(WATER_ROWS) - 0.25)
+
+
+func _boat_dock_cell() -> Vector2i:
+	return Vector2i(int(floor(BOAT_DOCK_X)), WATER_ROWS)
+
+
 func _init_people() -> void:
 	customer_agents.clear()
 	workers.clear()
@@ -295,7 +350,7 @@ func _build_ui() -> void:
 	actions.add_theme_constant_override("v_separation", 6)
 	bottom_box.add_child(actions)
 
-	_add_tool_button(actions, TOOL_CATCH, "Catch", "Tap water to collect fish, or tap a pool to deposit carried fish.")
+	_add_tool_button(actions, TOOL_CATCH, "Catch", "Drag on water to steer the boat, tap dock to unload, or tap a pool to deposit carried fish.")
 	_add_tool_button(actions, TOOL_PEOPLE, "People", "Select a worker, then tap water, a building, or land to assign them.")
 	_add_tool_button(actions, TOOL_POOL, "Pool $10", "Build live fish capacity on a buildable tile.")
 	_add_tool_button(actions, TOOL_CUTTER, "Cutter $15", "Build processing on a buildable tile.")
@@ -356,15 +411,8 @@ func _select_catch() -> void:
 
 
 func _try_handle_tap(position: Vector2) -> void:
-	if not grid_rect.has_point(position):
-		return
-
-	var cell := Vector2i(
-		int(floor((position.x - grid_rect.position.x) / tile_px)),
-		int(floor((position.y - grid_rect.position.y) / tile_px))
-	)
-
-	if cell.x < 0 or cell.y < 0 or cell.x >= GRID_W or cell.y >= GRID_H:
+	var cell := _cell_from_screen_position(position)
+	if cell.x < 0:
 		return
 
 	selected_cell = cell
@@ -395,27 +443,77 @@ func _try_handle_tap(position: Vector2) -> void:
 	queue_redraw()
 
 
+func _cell_from_screen_position(position: Vector2) -> Vector2i:
+	if not grid_rect.has_point(position):
+		return Vector2i(-1, -1)
+
+	var cell := Vector2i(
+		int(floor((position.x - grid_rect.position.x) / tile_px)),
+		int(floor((position.y - grid_rect.position.y) / tile_px))
+	)
+
+	if cell.x < 0 or cell.y < 0 or cell.x >= GRID_W or cell.y >= GRID_H:
+		return Vector2i(-1, -1)
+	return cell
+
+
+func _try_start_boat_drag(position: Vector2) -> bool:
+	if selected_tool != TOOL_CATCH:
+		return false
+
+	var cell := _cell_from_screen_position(position)
+	if cell.x < 0:
+		return false
+
+	var tile: Dictionary = tiles[cell.y][cell.x]
+	if tile["kind"] != TileKind.WATER:
+		return false
+
+	dragging_boat = true
+	_set_boat_target_from_screen(position)
+	status_text = "Boat following your drag. Sweep fish into the net, then tap the dock to unload."
+	_add_popup("Boat target", _world_to_screen(boat_target), Color("#9fe4dd"))
+	_update_hud()
+	queue_redraw()
+	return true
+
+
+func _update_boat_drag(position: Vector2) -> void:
+	_set_boat_target_from_screen(position)
+	queue_redraw()
+
+
+func _set_boat_target_from_screen(position: Vector2) -> void:
+	var world_position := (position - grid_rect.position) / tile_px
+	boat_target = Vector2(
+		clamp(world_position.x, 0.25, float(GRID_W) - 0.25),
+		clamp(world_position.y, 0.25, float(WATER_ROWS) - 0.25)
+	)
+	selected_cell = Vector2i(
+		int(clamp(floor(boat_target.x), 0.0, float(GRID_W - 1))),
+		int(clamp(floor(boat_target.y), 0.0, float(WATER_ROWS - 1)))
+	)
+
+
 func _use_catch_tool(cell: Vector2i) -> void:
 	var tile: Dictionary = tiles[cell.y][cell.x]
 	if tile["kind"] == TileKind.WATER:
-		if tile["fish"] <= 0:
-			status_text = "No fish on this water tile yet."
-			return
+		boat_target = _water_cell_target(cell)
+		status_text = "Boat heading out. Drag on water to guide it, then tap the dock to unload."
+		_add_popup_for_cell(cell, "Boat target", Color("#9fe4dd"))
+		return
 
-		var caught: int = min(tile["fish"], net_level)
-		var fish_kind := int(tile["fish_kind"])
-		tile["fish"] -= caught
-		tiles[cell.y][cell.x] = tile
-		_add_fish_to_stock(carried_fish_stock, fish_kind, caught)
-		fish_caught_total += caught
-		_add_fish_to_stock(fish_caught_by_kind, fish_kind, caught)
-		status_text = "Caught " + str(caught) + " " + _fish_plural(fish_kind, caught) + ". Tap a pool to store them." + _maybe_unlock_storage(fish_kind)
-		_add_popup_for_cell(cell, "+" + str(caught) + " " + _fish_name(fish_kind), _fish_color(fish_kind))
+	if tile["kind"] == TileKind.DOCK:
+		boat_target = _boat_home_position()
+		if _boat_is_at_dock() and _boat_net_count() > 0:
+			_try_unload_boat()
+		else:
+			status_text = "Boat returning to the dock. It will unload when it arrives."
 		return
 
 	if tile["building"] == BuildKind.POOL:
 		if _carried_fish_total() <= 0:
-			status_text = "You are not carrying fish. Tap water first."
+			status_text = "No carried fish. Catch with the boat, unload at the dock, or assign workers to fish."
 			return
 
 		var room := _pool_capacity() - _live_fish_total()
@@ -429,7 +527,7 @@ func _use_catch_tool(cell: Vector2i) -> void:
 		_add_popup_for_cell(cell, "+" + str(moved) + " live", Color("#9fe4dd"))
 		return
 
-	status_text = "Catch works on water, or on pools when carrying fish."
+	status_text = "Catch works on water, the dock, or pools when carrying fish."
 
 
 func _use_people_tool(cell: Vector2i) -> void:
@@ -690,6 +788,108 @@ func _tick_fish_spawns(delta: float) -> void:
 				tile["fish"] = randi_range(1, min(3, 1 + net_level))
 				tile["spawn_timer"] = randf_range(3.0, 7.0)
 			tiles[y][x] = tile
+
+
+func _tick_active_fishing(delta: float) -> void:
+	_move_boat(delta)
+
+	var water_min := Vector2(0.15, 0.15)
+	var water_max := Vector2(float(GRID_W) - 0.15, float(WATER_ROWS) - 0.2)
+	for fish in active_fish_agents:
+		fish.tick(delta, water_min, water_max, boat_position)
+
+	_collect_fish_in_net()
+	while active_fish_agents.size() < ACTIVE_FISH_MAX:
+		_spawn_active_fish()
+
+	if _boat_is_at_dock() and _boat_net_count() > 0:
+		_try_unload_boat()
+
+
+func _move_boat(delta: float) -> void:
+	var delta_to_target := boat_target - boat_position
+	if delta_to_target.length() <= 0.01:
+		return
+
+	var move_distance := BOAT_SPEED * delta
+	if delta_to_target.length() <= move_distance:
+		boat_position = boat_target
+	else:
+		boat_position += delta_to_target.normalized() * move_distance
+	boat_last_direction = delta_to_target.normalized()
+
+
+func _collect_fish_in_net() -> void:
+	if _boat_net_count() >= _boat_net_capacity():
+		return
+
+	var net_center := _boat_net_center()
+	var catch_radius := _boat_net_radius()
+	for i in range(active_fish_agents.size() - 1, -1, -1):
+		if _boat_net_count() >= _boat_net_capacity():
+			return
+
+		var fish = active_fish_agents[i]
+		if fish.position.distance_to(net_center) > catch_radius + NET_CATCH_RADIUS:
+			continue
+
+		active_fish_agents.remove_at(i)
+		_add_fish_to_stock(boat_fish_stock, fish.fish_kind, 1)
+		fish_caught_total += 1
+		_add_fish_to_stock(fish_caught_by_kind, fish.fish_kind, 1)
+		status_text = "Net caught a " + _fish_name(fish.fish_kind) + ". Net " + str(_boat_net_count()) + "/" + str(_boat_net_capacity()) + "." + _maybe_unlock_storage(fish.fish_kind)
+		_add_popup(_fish_name(fish.fish_kind), _world_to_screen(net_center), _fish_color(fish.fish_kind))
+
+
+func _try_unload_boat() -> void:
+	var room := _pool_capacity() - _live_fish_total()
+	if room <= 0:
+		status_text = "Boat is docked, but pools are full. Build, staff, or upgrade pools."
+		return
+
+	var moved := _move_fish_between_stocks(boat_fish_stock, live_fish_stock, room)
+	if moved <= 0:
+		return
+	fish_stored_total += moved
+	status_text = "Boat unloaded " + str(moved) + " live fish into pools."
+	_add_popup("Unload +" + str(moved), _world_to_screen(_boat_home_position()), Color("#b7ef8a"))
+
+
+func _water_cell_target(cell: Vector2i) -> Vector2:
+	return Vector2(
+		clamp(float(cell.x) + 0.5, 0.25, float(GRID_W) - 0.25),
+		clamp(float(cell.y) + 0.5, 0.25, float(WATER_ROWS) - 0.25)
+	)
+
+
+func _boat_is_at_dock() -> bool:
+	return boat_position.distance_to(_boat_home_position()) <= 0.08
+
+
+func _boat_direction() -> Vector2:
+	if boat_last_direction.length() <= 0.001:
+		return Vector2.DOWN
+	return boat_last_direction.normalized()
+
+
+func _boat_net_center() -> Vector2:
+	return boat_position - _boat_direction() * _boat_net_length()
+
+
+func _boat_net_length() -> float:
+	return 0.45 + float(net_level) * 0.16
+
+
+func _boat_net_radius() -> float:
+	return 0.28 + float(net_level) * 0.08
+
+
+func _boat_net_capacity() -> int:
+	return 4 + net_level * 3
+
+
+func _boat_net_count() -> int:
+	return _stock_total(boat_fish_stock)
 
 
 func _tick_cutters(delta: float) -> void:
@@ -1758,10 +1958,10 @@ func _cutter_upgrade_cost() -> int:
 
 func _net_unlock_text() -> String:
 	if net_level == 2:
-		return " Silverfish can now appear in the water."
+		return " Net capacity is now " + str(_boat_net_capacity()) + ". Silverfish can now appear in the water."
 	if net_level == 3:
-		return " Better fish now appear more often."
-	return ""
+		return " Net radius grew again. Better fish now appear more often."
+	return " Net capacity is now " + str(_boat_net_capacity()) + "."
 
 
 func _affordability_color(cost: int) -> Color:
@@ -2032,10 +2232,12 @@ func _update_hud() -> void:
 	var smoked_text := ""
 	if _is_smoker_unlocked() or smoked_meat > 0:
 		smoked_text = "   Smoke:%d/%d" % [smoked_meat, _smoked_meat_capacity()]
-	hud_label.text = "Coldwater Catch\n$%d   Carry:%d %s   Live:%d/%d %s   Meat:%d/%d%s\nBuyers:%d/%d   Queue:%d   Lost:%d   Patience:%ds   Crew:%d/%d\nNet %d   Pool %d   Cutter %d   Land:%d" % [
+	hud_label.text = "Coldwater Catch\n$%d   Carry:%d %s   Boat:%d/%d   Live:%d/%d %s   Meat:%d/%d%s\nBuyers:%d/%d   Queue:%d   Lost:%d   Patience:%ds   Crew:%d/%d\nNet %d   Pool %d   Cutter %d   Land:%d" % [
 		money,
 		_carried_fish_total(),
 		_stock_summary(carried_fish_stock),
+		_boat_net_count(),
+		_boat_net_capacity(),
 		_live_fish_total(),
 		capacity,
 		_stock_summary(live_fish_stock),
@@ -2152,9 +2354,12 @@ func _draw_water_tile(rect: Rect2, fish_count: int, fish_kind: int) -> void:
 	draw_arc(rect.get_center(), tile_px * 0.26, 0.2, PI - 0.2, 16, Color("#9fe4dd"), 2.0)
 	draw_arc(rect.get_center() + Vector2(0, 6), tile_px * 0.22, 0.2, PI - 0.2, 16, Color("#72c5c3"), 2.0)
 
+	# Tile stock still powers worker autofishing; moving fish are the manual catch targets.
 	for i in fish_count:
 		var offset := Vector2(-tile_px * 0.18 + float(i) * tile_px * 0.18, -tile_px * 0.04 + float(i % 2) * 8.0)
-		_draw_fish(rect.get_center() + offset, tile_px * 0.18, fish_kind)
+		var marker_color: Color = _fish_color(fish_kind).lerp(Color("#f5efe1"), 0.35)
+		marker_color.a = 0.55
+		draw_circle(rect.get_center() + offset, tile_px * 0.035, marker_color)
 
 
 func _draw_road_tile(rect: Rect2) -> void:
@@ -2216,6 +2421,46 @@ func _draw_people() -> void:
 		_draw_person(_agent_screen_pos(worker_pos), Color("#f2d16b"), i == selected_worker_index, "W")
 
 
+func _draw_active_fishing() -> void:
+	for fish in active_fish_agents:
+		var fish_agent = fish
+		_draw_fish(_world_to_screen(fish_agent.position), tile_px * 0.13, fish_agent.fish_kind)
+
+	var boat_screen := _world_to_screen(boat_position)
+	var net_center := _boat_net_center()
+	var net_screen := _world_to_screen(net_center)
+	var net_radius: float = _boat_net_radius() * tile_px
+	draw_line(boat_screen, net_screen, Color("#d9c6a1"), 2.0)
+	draw_arc(net_screen, net_radius, 0.0, TAU, 32, Color("#d9c6a1"), 2.0)
+	draw_arc(net_screen, net_radius * 0.62, 0.0, TAU, 24, Color("#8fb8bd"), 1.0)
+
+	var caught_index := 0
+	for fish_kind: int in [FishKind.MINNOW, FishKind.CARP, FishKind.SILVERFISH]:
+		for i in int(boat_fish_stock[fish_kind]):
+			var angle := float(caught_index) * 1.7
+			var offset: Vector2 = Vector2(cos(angle), sin(angle)) * min(net_radius * 0.55, 5.0 + float(caught_index % 4) * 3.0)
+			_draw_fish(net_screen + offset, tile_px * 0.09, fish_kind)
+			caught_index += 1
+
+	_draw_boat(boat_screen)
+	var font := get_theme_default_font()
+	draw_string(font, net_screen + Vector2(-36, -net_radius - 5), "NET " + str(_boat_net_count()) + "/" + str(_boat_net_capacity()), HORIZONTAL_ALIGNMENT_CENTER, 72.0, 12, Color("#f5efe1"))
+
+
+func _draw_boat(center: Vector2) -> void:
+	var direction := _boat_direction()
+	var right := direction.orthogonal()
+	var bow := center + direction * tile_px * 0.24
+	var left := center - direction * tile_px * 0.24 - right * tile_px * 0.16
+	var stern := center - direction * tile_px * 0.33
+	var right_point := center - direction * tile_px * 0.24 + right * tile_px * 0.16
+	draw_polygon(
+		PackedVector2Array([bow, right_point, stern, left]),
+		PackedColorArray([Color("#7a4f3b"), Color("#6a422f"), Color("#4d3025"), Color("#6a422f")])
+	)
+	draw_polyline(PackedVector2Array([bow, right_point, stern, left, bow]), Color("#f0d597"), 2.0)
+
+
 func _draw_dock_order_board() -> void:
 	if not _is_dock_order_unlocked():
 		return
@@ -2239,6 +2484,10 @@ func _draw_dock_order_board() -> void:
 
 func _agent_screen_pos(pos: Vector2) -> Vector2:
 	return grid_rect.position + Vector2((pos.x + 0.5) * tile_px, (pos.y + 0.5) * tile_px)
+
+
+func _world_to_screen(pos: Vector2) -> Vector2:
+	return grid_rect.position + pos * tile_px
 
 
 func _draw_person(center: Vector2, body_color: Color, selected: bool, label: String) -> void:
@@ -2320,11 +2569,11 @@ func _draw_fish(center: Vector2, scale: float, fish_kind: int) -> void:
 
 
 func _draw_footer_hint() -> void:
-	if selected_tool == TOOL_CATCH:
-		return
 	var font := get_theme_default_font()
 	var hint := ""
 	match selected_tool:
+		TOOL_CATCH:
+			hint = "Catch: drag on water to steer the boat, tap dock to unload the net."
 		TOOL_PEOPLE:
 			if selected_worker_index >= 0 and selected_worker_index < workers.size():
 				hint = "People: " + _worker_name(selected_worker_index) + " selected. Tap water, a building, or land."
@@ -2364,7 +2613,7 @@ func _cell_rect(cell: Vector2i) -> Rect2:
 
 func _selected_tile_text() -> String:
 	if selected_cell.x < 0:
-		return "Tile: tap water, people, pools, cutters, or markets to inspect them."
+		return "Tile: drag water, tap people, pools, cutters, or markets to inspect them."
 
 	if _is_dock_order_unlocked() and selected_cell == _order_board_cell():
 		if dock_order_active:
@@ -2389,10 +2638,11 @@ func _selected_tile_text() -> String:
 
 	var tile: Dictionary = tiles[selected_cell.y][selected_cell.x]
 	if tile["kind"] == TileKind.WATER:
-		if tile["fish"] <= 0:
-			return "Tile: water. Fish will return soon."
-		var fish_kind := int(tile["fish_kind"])
-		return "Tile: water with " + str(tile["fish"]) + " " + _fish_plural(fish_kind, int(tile["fish"])) + ". Workers assigned here auto-carry fish to pools."
+		return "Tile: water. Drag with Catch to steer the boat; visible fish caught in the net unload at the dock."
+	if tile["kind"] == TileKind.DOCK:
+		return "Tile: dock. Tap with Catch to return and unload the boat. Dock tiles are buildable."
+	if tile["kind"] == TileKind.PLAZA:
+		return "Tile: plaza. Buildable trade surface; markets on or beside plazas sell +1 per tick."
 	if tile["kind"] == TileKind.ROAD:
 		return "Tile: road. Markets beside roads gain +1 sale capacity."
 	if tile["kind"] == TileKind.EXPANSION:

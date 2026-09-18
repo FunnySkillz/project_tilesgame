@@ -24,11 +24,13 @@ The game should become enjoyable when the player constantly thinks:
 
 The player should see fish and resources move through a clear production chain:
 
-Water -> net -> pool -> cutter -> storage -> market or truck.
+Water -> boat -> net -> dock unload -> pool -> cutter -> storage -> market or truck.
 
 Even simple visuals should communicate state:
 
 - fish appear in water
+- the boat moves through the water
+- fish visibly enter the net
 - pools visibly fill
 - machines animate while processing
 - buyers arrive, wait, buy, and leave
@@ -124,8 +126,9 @@ The player starts with water, land, one pool, one cutter, and one market.
 
 They learn:
 
-- tap water to catch fish
-- put fish in pool
+- drag on water to steer the boat
+- sweep fish into the net
+- return to the dock to unload into pools
 - cutter makes meat
 - market sells meat
 - money buys upgrades
@@ -259,6 +262,28 @@ Monster tier:
 - night predators
 
 Each new fish should force the player to adapt at least one part of the base.
+
+### Active Fishing
+
+Fishing should be a signature interaction, not only a resource button.
+
+Current direction:
+
+- visible fish swim in the water
+- the player boat starts at the dock
+- dragging on water steers the boat, with tap-to-target still working as a simple fallback
+- the boat drags a visible net behind it
+- fish entering the net are caught up to net capacity
+- returning to the dock unloads live fish into pools
+- net upgrades should visibly increase net capacity and net size
+- minnows, carp, and silverfish have different movement personalities
+
+Later active-fishing depth:
+
+- smoother steering and possible drawn path feedback
+- deeper species behavior such as minnow schools, lure/bait reactions, and predator avoidance
+- fishing zones such as shallow, cold, deep, and monster water
+- boat upgrades for speed, lights, net strength, storage, sonar, and armor
 
 ### Buyers And Selling
 
@@ -445,6 +470,21 @@ Needs:
 - buyer patience and preferences
 - staffed markets
 - richer selling moments
+
+### Milestone 4.5: Active Fishing
+
+Goal: make catching fish as tactile as processing and selling them.
+
+Needs:
+
+- visible swimming fish
+- player boat
+- visible net
+- net capacity
+- dock unloading
+- net size upgrades
+- fish behavior differences
+- fishing zones
 
 ### Milestone 5: Danger
 

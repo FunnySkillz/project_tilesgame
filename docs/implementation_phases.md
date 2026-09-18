@@ -23,7 +23,7 @@ Goal: prove that the core loop is satisfying on a phone-sized screen.
 Implemented:
 
 - starter working fishery with pool, cutter, and market already placed
-- tap water to catch fish
+- tap water to catch fish in the first prototype loop, later replaced by Phase 4.5 boat fishing
 - tap pool to store carried fish
 - cutter automatically processes live fish into meat
 - market automatically sells meat to waiting buyers
@@ -183,6 +183,49 @@ Next:
 - add more expressive worker/buyer animation states
 - add richer stall presentation around markets and the order board
 - consider a first texture pass for dock/plaza readability
+
+## Phase 4.5: Active Fishing
+
+Status: active-control slice complete.
+
+Goal: make catching fish as satisfying and readable as processing and selling them.
+
+Needs:
+
+- [x] visible swimming fish agents
+- [x] player boat at the dock
+- [x] tap water to target the boat as a fallback
+- [x] visible net behind the boat
+- [x] fish collision with the net
+- [x] net capacity
+- [x] return-to-dock unloading into pools
+- [x] net upgrades that visibly increase capacity/size
+- [x] drag boat steering
+- [x] fish species-specific movement personalities
+- [ ] fishing zones such as shallow, cold, deep, and monster water
+- [ ] boat upgrades beyond net level
+- [ ] split more fishing code out of `main.gd`
+
+Implemented:
+
+- added first dedicated fishing helper script at `scripts/fishing/FishAgent.gd`
+- water now has continuous swimming fish agents drawn over the tile grid
+- Catch tool now steers the boat to tapped water instead of instantly collecting from a water tile
+- drag input on water now continuously updates the boat target for phone-friendly steering
+- boat pulls a visible circular net behind it
+- fish entering the net are collected into boat stock up to net capacity
+- HUD shows boat/net stock as `Boat:x/y`
+- tapping the dock returns the boat; docked boat unloads live fish into pools when there is capacity
+- net level now increases active net capacity and visible net size
+- minnows wiggle, carp cruise, and silverfish dart away from the boat
+- catch and store goals work through active fishing because net catches count as caught fish and dock unloading counts as stored fish
+
+Next:
+
+- add a small active-fishing architecture pass before expanding this system much further
+- add shallow, cold, deep, and monster water zones so fishing routes matter
+- add boat upgrades beyond net level, starting with speed and hold size
+- keep graphics procedural until net shape, boat scale, and fish readability feel good
 
 ## Phase 5: Danger
 

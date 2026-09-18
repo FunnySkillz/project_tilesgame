@@ -47,7 +47,7 @@ Needed assets:
 
 This is the right point to create a cohesive style sheet because the unlock tree will define what the player sees repeatedly.
 
-### Phase 4: Danger
+### Phase 5: Danger
 
 Generate threat and weather assets.
 
@@ -72,6 +72,17 @@ Generate this before final danger polish if the people layer becomes the main fe
 - dock lamps and signboards
 - crates, fish racks, and small trade details
 - simple path/plaza overlays so people movement reads clearly
+
+### Active Fishing Readability Pass
+
+Do this before final danger polish because fishing is now a signature interaction:
+
+- small player boat
+- visible trailing net in empty, partly full, and full states
+- readable minnow, carp, and silverfish sprites
+- simple wake, ripple, and net-catch effects
+- dock-unload feedback
+- shallow/cold/deep water tile variants once fishing zones exist
 
 ### Phase 5: Automation And Trucks
 
@@ -115,8 +126,8 @@ Avoid tiny detail. Every asset must read at phone size.
 
 Do not generate final textures yet.
 
-Phase 2 layout mechanics are readable enough to support a first texture pass, and Phase 3 now has fish species, Storage, land expansion, and the Smoker branch. The people layer is now important enough that the first cohesive pack should include workers, buyers, and market-life props, not only tiles and machines.
+Phase 2 layout mechanics are readable enough to support a first texture pass, and Phase 3 now has fish species, Storage, land expansion, and the Smoker branch. Phase 4 added workers, visible buyers, and dock orders. Phase 4.5 now has active boat fishing, so the first cohesive pack should include the boat, net, fish readability, workers, buyers, and market-life props instead of only tiles and machines.
 
 Next art milestone:
 
-Generate a small prototype texture pack after the early people-and-demand loop is stable. The first pack should cover water, land, dock, plaza, road, expansion ground, pool, cutter, market, storage, smoker, dock order board, worker, buyer, minnow, carp, silverfish, meat, smoked meat, money, crates, lamps, and market props.
+Generate a small prototype texture pack after active fishing zones and boat upgrade silhouettes are stable. The first pack should cover water, land, dock, plaza, road, expansion ground, pool, cutter, market, storage, smoker, dock order board, boat, net, worker, buyer, minnow, carp, silverfish, meat, smoked meat, money, crates, lamps, and market props.
