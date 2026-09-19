@@ -1,6 +1,6 @@
 # Coldwater Catch
 
-A Godot 4 mobile prototype for a tile-based fishing and processing game.
+A Godot 4 mobile prototype for a character-driven fishing and processing game.
 
 ## Run
 
@@ -8,9 +8,12 @@ Open this folder in Godot 4.7.2 or newer and press Play.
 
 The current prototype focuses on the core systems:
 
-- drag on water with the Catch tool to steer the boat
+- use Walk to move the fisherman across land, docks, plazas, and roads
+- use Fish at the dock to catch nearby visible fish into the fisherman's basket
+- walk to the pool to drop fish, the cutter to process them, and the market to hand meat to waiting buyers
+- the fisherman visibly carries fish and meat; cutter and market automation need workers later
 - select Map and drag the board to pan around the 16x18 fishery; Center returns to the starter district
-- sweep visible fish into the net, then tap the dock to unload into pools
+- Net level 2 unlocks the boat, then Fish can steer it offshore with drag controls
 - a starter pool, cutter, and market are already placed
 - build extra pools, cutters, and markets on buildable land, dock, and plaza tiles
 - dock and plaza tiles make the base read like a working wharf
@@ -25,16 +28,16 @@ The current prototype focuses on the core systems:
 - villagers, cooks, and merchants have different visible wants
 - cooks pay more for smoked meat, while merchants buy bulk orders
 - a dock order board posts timed larger orders after merchant trade is proven
-- use the People tool to select and assign workers
-- hire more workers with the Hire button
-- workers can auto-fish, staff pools, speed cutters/smokers, and serve more market buyers
+- hire is locked until Net 2 and four hand sales; workers are earned automation
+- use the People tool to select and assign workers after hiring them
+- workers can auto-fish, staff pools, run cutters/smokers, and serve market buyers
 - unaffordable build and upgrade buttons are tinted, and upgrade buttons show current prices
 - water now has visible swimming minnows, carp, and later silverfish
 - shallow, open, cold, deep, and monster water affect fish mix and movement
 - cold, deep, and monster routes give one-time discovery bonuses; monster water shows a warning meter
 - minnows wiggle, carp cruise, and silverfish dart away from the boat
 - fish species use different colors and produce different meat yields
-- Net level 2 unlocks silverfish and increases the visible boat net capacity/size
+- Net level 2 unlocks the boat, silverfish, and offshore fishing; later net levels increase boat net capacity/size
 - Boat upgrades improve travel speed, increase the net hold, and add small visual details
 - catching silverfish unlocks Storage, which increases meat capacity
 - building Storage unlocks Expand, which claims connected frontier ground into buildable land
@@ -44,6 +47,7 @@ The current prototype focuses on the core systems:
 ## Design Docs
 
 - `docs/design_plan.md` defines the game plan.
+- `docs/progression_pivot.md` defines the manual-first progression direction.
 - `docs/implementation_phases.md` tracks the build phases.
 - `docs/art_plan.md` explains when generated figures and textures should happen.
 - `docs/graphify_evaluation.md` records the Graphify test and current GDScript limitation.

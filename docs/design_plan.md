@@ -2,49 +2,53 @@
 
 ## Core Promise
 
-Coldwater Catch is a portrait-first tile game about starting with a tiny hand-run fishing spot and growing it into a strange, efficient, dangerous cold-water fishery.
+Coldwater Catch is a portrait-first character-driven fishing-business game about starting as one person with a basket and growing a tiny hand-run fishing spot into a strange, efficient, dangerous cold-water fishery.
 
 The player fantasy is:
 
-> I built this rough little fishery from nothing, and every tile placement makes it work better.
+> I started by doing every job myself. Now I can see the fishery working because of the people and machines I earned.
 
 The stronger visual target is a living coldwater dock settlement: workers hauling fish, buyers walking in, lamps glowing, stalls trading, and the base feeling like a small hard-working community at the edge of dangerous water.
 
 The game should become enjoyable when the player constantly thinks:
 
-- I can make this layout better.
-- One more upgrade will make the loop smoother.
+- I can do this job faster with one more upgrade.
+- I have earned someone or something that can take this job over.
 - I can expand into danger now, or prepare first.
 - This base feels like mine.
 - My people are busy, useful, and worth protecting.
 
 ## Main Fun Pillars
 
-### 1. Tactile Production
+### 1. Manual Work Becomes Automation
 
-The player should see fish and resources move through a clear production chain:
+The player begins as the worker. The first loop must be readable enough to do with almost no UI friction:
 
-Water -> boat -> net -> dock unload -> pool -> cutter -> storage -> market or truck.
+Walk to water -> catch fish -> carry fish -> cut fish -> carry meat -> hand it to a buyer.
+
+Only after the player understands and feels that loop should automation arrive:
+
+Player fishing -> hired fisher -> processing worker -> staffed market -> boat -> industrial line.
 
 Even simple visuals should communicate state:
 
 - fish appear in water
-- the boat moves through the water
-- fish visibly enter the net
-- pools visibly fill
-- machines animate while processing
+- the player visibly carries fish and meat
+- fish visibly enter a basket or net
+- pools visibly fill and empty
+- a cutter visibly works while a person is there
 - buyers arrive, wait, buy, and leave
 - money and resources pop with clear feedback
 
 The base should feel alive, even before advanced automation exists.
 
-### 2. Tile Layout Strategy
+### 2. Place And Expand, Do Not Spreadsheet
 
-The grid is the heart of the game. Space must matter.
+The grid is a world and placement scaffold, not the main challenge. The game should not ask the player to solve exact adjacency puzzles before they have a working business.
 
 The playable world should feel like a settlement site, not one static screen. The current prototype uses a 16x18 world viewed through a phone-sized camera: the player begins around the dock and plaza, then pans outward and claims connected frontier tiles. This leaves genuine room for later industrial yards, defensible shorelines, truck access, and specialized districts without reducing every tile to an unreadable speck.
 
-Good placement should improve efficiency:
+Good placement should be visually natural and lightly rewarding:
 
 - pools near water reduce handling friction
 - cutters near pools make processing feel natural
@@ -53,17 +57,17 @@ Good placement should improve efficiency:
 - heaters protect cold-sensitive production zones
 - defenses cover monster paths and vulnerable pools
 
-The player should slowly learn better layouts and want to rebuild.
+The main spatial decision is when to buy a new usable area. Each expansion should reveal a concrete next piece of the fishery rather than merely one more empty square: processing yard, second dock, freezer yard, truck loading, then deep-water access.
 
 ### 3. Living People And Trade
 
 The base should feel populated early.
 
-People are not only decoration:
+The player character is the first person the player cares about. Other people should then repeat the work the player has already done:
 
-- workers can be selected, moved, and assigned
-- fishers catch and carry fish
-- cutters, smokers, and markets work better with staff
+- the player walks, carries, cuts, and sells at the start
+- fishers catch and carry after being hired
+- processing and market workers take over familiar manual handoffs
 - buyers physically arrive, wait, buy, and leave
 - more successful selling attracts more foot traffic
 - later, different buyers should want different goods
@@ -119,45 +123,61 @@ Small fish are mostly meat. Later fish can provide:
 
 New catches should create new production questions instead of just being worth more money.
 
+## Progression Spine
+
+The main release sequence is intentionally simple and physical:
+
+1. Manual fisherman: catch, carry, cut, and sell everything personally.
+2. Net upgrade: a visibly larger basket or net carries more fish.
+3. First fisherman: repeats the manual fishing route automatically.
+4. Processing worker: keeps the cutter working while the player handles trade.
+5. Customer crowd: visible buyer flow makes a staffed market worthwhile.
+6. Area expansion: unlock a named usable district rather than a disconnected optimisation puzzle.
+7. Boat and larger net: reach fish schools farther from shore.
+8. Storage, smoker, and freezer: turn volume into better goods.
+9. Truck orders: sell large prepared batches.
+10. Deep water: introduce valuable fish, cold, and then danger.
+11. Monster fishing: unlock special resources and defensive choices.
+12. Industrial fishery: multiple crews, large pools, cranes, vessels, and long trade routes.
+
+The rule for every unlock is: the player should manually feel the pain point before the upgrade or person removes it.
+
 ## First 30 Minutes
 
 The first 30 minutes are the most important part of the game. The goal is to teach the core loop, create the first interesting decisions, and show the larger promise.
 
-### Minute 0-3: Understand The Loop
+### Minute 0-3: Be The Fisherman
 
 The player starts with water, land, one pool, one cutter, and one market.
 
 They learn:
 
-- drag on water to steer the boat
-- sweep fish into the net
-- return to the dock to unload into pools
-- cutter makes meat
-- market sells meat
+- walk the fisherman to the dock
+- catch a nearby visible fish into a small basket
+- bring catches to the pool or cutter
+- wait at the cutter while fish becomes meat
+- hand meat to a waiting buyer
 - money buys upgrades
 
-### Minute 3-8: First Expansion
+### Minute 3-8: First Automation
 
-The player earns enough money to choose their first direction:
+The player earns enough money to feel the first relief:
 
-- build another pool
-- build another cutter
 - upgrade net
-- add more market capacity
+- hire the first fisherman after proving hand sales
+- watch the fisherman repeat the route the player has been doing
 
-This is the first moment where the player feels ownership over the base.
+This is the first moment where the player feels that the base is beginning to work for them.
 
-### Minute 8-15: First Problem
+### Minute 8-15: First Area And Boat
 
-Introduce one soft constraint:
+The player earns an area unlock and a boat, which opens larger catches and a longer production route:
 
-- pools fill up
-- buyers wait too long
-- cutter is too slow
-- better fish spawn farther away
-- storage is too small
+- a larger net catches whole schools
+- a storage or smoker yard opens
+- a boat reaches offshore fish that cannot be reached from the dock
 
-This gives the player a reason to improve the layout.
+This gives the player a visible reason to grow the operation.
 
 ### Minute 15-25: First New Mechanic
 
@@ -273,8 +293,9 @@ Fishing should be a signature interaction, not only a resource button.
 Current direction:
 
 - visible fish swim in the water
-- the player boat starts at the dock
-- dragging on water steers the boat, with tap-to-target still working as a simple fallback
+- the player begins on foot at the dock with a small basket
+- tapping a nearby fish is the first shore-fishing interaction
+- Net 2 unlocks the boat, then dragging on water steers it with tap-to-target as a fallback
 - the boat drags a visible net behind it
 - fish entering the net are caught up to net capacity
 - returning to the dock unloads live fish into pools
@@ -319,12 +340,13 @@ Selling should feel like people coming to the dock, not invisible conversion int
 
 Current prototype buyer rules:
 
+- the first villager must be served by the fisherman carrying meat to the market
 - villagers want meat and will buy smoked meat only if regular meat is unavailable
 - cooks want smoked meat and pay a premium for it
 - merchants want several goods and can be served over multiple sale ticks
 - visible want bubbles show what each buyer expects before they leave
 - the dock order board posts timed larger orders after merchant trade is proven
-- markets use spare sales capacity to fill dock orders and earn completion bonuses
+- staffed markets use spare sales capacity to fill dock orders and earn completion bonuses
 
 ### Progression Tracks
 

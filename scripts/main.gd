@@ -9,6 +9,7 @@ enum BuyerKind { VILLAGER, COOK, MERCHANT }
 
 const BoatAgentScript := preload("res://scripts/fishing/BoatAgent.gd")
 const FishAgentScript := preload("res://scripts/fishing/FishAgent.gd")
+const PlayerAgentScript := preload("res://scripts/people/PlayerAgent.gd")
 
 const GRID_W := 16
 const GRID_H := 18
@@ -17,6 +18,7 @@ const ROAD_ROW := 12
 const MAX_CUSTOMERS := 12
 
 const TOOL_CATCH := "catch"
+const TOOL_WALK := "walk"
 const TOOL_PEOPLE := "people"
 const TOOL_POOL := "pool"
 const TOOL_CUTTER := "cutter"
@@ -34,7 +36,7 @@ const COST_MARKET := 20
 const COST_STORAGE := 25
 const COST_SMOKER := 45
 const COST_EXPAND := 35
-const COST_WORKER := 35
+const COST_WORKER := 150
 const MAX_WORKERS := 6
 
 const CUSTOMER_PATIENCE_SECONDS := 10.0
@@ -48,10 +50,14 @@ const WORKER_SMOKER_RATE_BONUS := 0.35
 const ACTIVE_FISH_MAX := 18
 const BOAT_DOCK_X := 5.5
 const NET_CATCH_RADIUS := 0.34
+const PLAYER_FISH_CAPACITY := 3
+const PLAYER_MEAT_CAPACITY := 3
+const PLAYER_CUT_SECONDS := 2.25
+const PLAYER_SALE_SECONDS := 0.55
 const MONSTER_WARNING_SECONDS := 6.0
 const MONSTER_WARNING_DECAY := 1.15
 const SMOKER_SECONDS := 6.0
-const MEAT_PRICE := 6
+const MEAT_PRICE := 12
 const SMOKED_MEAT_PRICE := 14
 const COOK_SMOKED_MEAT_PRICE := 18
 const MERCHANT_BULK_SIZE := 3
@@ -63,7 +69,7 @@ const SMOKER_INPUT_MEAT := 2
 const SMOKER_OUTPUT_SMOKED := 1
 
 var tiles: Array = []
-var selected_tool := TOOL_CATCH
+var selected_tool := TOOL_WALK
 var money := 30
 var carried_fish_stock: Array = [0, 0, 0]
 var live_fish_stock: Array = [0, 0, 0]
@@ -79,7 +85,7 @@ var customer_patience_timer := CUSTOMER_PATIENCE_SECONDS
 var market_sell_timer := MARKET_SELL_SECONDS
 var cutter_progress := 0.0
 var smoker_progress := 0.0
-var status_text := "Drag on water with Catch to steer the boat. Return to the dock to unload fish."
+var status_text := "Walk to the dock, select Fish, and tap a nearby fish to fill your basket."
 var goal_step := GoalStep.CATCH
 var fish_caught_total := 0
 var fish_caught_by_kind: Array = [0, 0, 0]
@@ -107,6 +113,11 @@ var workers: Array = []
 var selected_worker_index := -1
 var active_fish_agents: Array = []
 var boat_agent = BoatAgentScript.new()
+var player_agent = PlayerAgentScript.new()
+var player_fish_stock: Array = [0, 0, 0]
+var player_meat := 0
+var player_cut_progress := 0.0
+var player_sale_cooldown := 0.0
 var dragging_boat := false
 var dragging_map := false
 var map_drag_origin := Vector2.ZERO
@@ -136,6 +147,7 @@ func _ready() -> void:
 	randomize()
 	_init_tiles()
 	_init_active_fishing()
+	_init_player()
 	_init_people()
 	_build_ui()
 	_calculate_grid_rect()
@@ -148,6 +160,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_tick_fish_spawns(delta)
 	_tick_active_fishing(delta)
+	_tick_player(delta)
 	_tick_workers(delta)
 	_tick_cutters(delta)
 	_tick_smokers(delta)
@@ -476,11 +489,18 @@ func _boat_dock_cell() -> Vector2i:
 	return Vector2i(int(floor(BOAT_DOCK_X)), WATER_ROWS)
 
 
+func _init_player() -> void:
+	player_agent.setup(Vector2(6, WATER_ROWS))
+	player_fish_stock = [0, 0, 0]
+	player_meat = 0
+	player_cut_progress = 0.0
+	player_sale_cooldown = 0.0
+
+
 func _init_people() -> void:
 	customer_agents.clear()
 	workers.clear()
 	selected_worker_index = -1
-	_spawn_worker(Vector2i(7, ROAD_ROW - 2), false)
 
 
 func _build_ui() -> void:
@@ -544,7 +564,8 @@ func _build_ui() -> void:
 	actions.add_theme_constant_override("v_separation", 6)
 	bottom_box.add_child(actions)
 
-	_add_tool_button(actions, TOOL_CATCH, "Catch", "Drag on water to steer the boat, tap dock to unload, or tap a pool to deposit carried fish.")
+	_add_tool_button(actions, TOOL_WALK, "Walk", "Tap land, dock, plaza, or road to move the fisherman. Nearby stations work automatically.")
+	_add_tool_button(actions, TOOL_CATCH, "Fish", "Before the boat unlocks, stand at the dock and tap a nearby fish to catch it. Later, drag to steer the boat.")
 	_add_tool_button(actions, TOOL_MAP, "Map", "Select Map, then drag the board to pan across the larger fishery.")
 	_add_tool_button(actions, TOOL_PEOPLE, "People", "Select a worker, then tap water, a building, or land to assign them.")
 	_add_tool_button(actions, TOOL_POOL, "Pool $10", "Build live fish capacity on a buildable tile.")
@@ -561,7 +582,7 @@ func _build_ui() -> void:
 	command_buttons["cutter"] = _add_command_button(actions, "Cutter +", "Upgrade cutters", _upgrade_cutter)
 	command_buttons["hire"] = _add_command_button(actions, "Hire +", "Hire another worker", _hire_worker)
 	_add_command_button(actions, "Center", "Return the map view to the starter fishery", _center_map)
-	_add_command_button(actions, "Clear", "Clear current tool", _select_catch)
+	_add_command_button(actions, "Walk", "Return to walking the fisherman", _select_walk)
 
 
 func _add_tool_button(parent: Control, tool: String, text: String, tooltip: String) -> void:
@@ -599,11 +620,11 @@ func _add_command_button(parent: Control, text: String, tooltip: String, callabl
 	return button
 
 
-func _select_catch() -> void:
+func _select_walk() -> void:
 	_cancel_move_if_needed()
 	selected_worker_index = -1
-	selected_tool = TOOL_CATCH
-	status_text = "Catch selected."
+	selected_tool = TOOL_WALK
+	status_text = "Walk selected. Tap a nearby surface to move the fisherman."
 	_update_tool_buttons()
 
 
@@ -647,6 +668,8 @@ func _try_handle_tap(position: Vector2) -> void:
 	selected_cell = cell
 
 	match selected_tool:
+		TOOL_WALK:
+			_move_player_to(cell)
 		TOOL_CATCH:
 			_use_catch_tool(cell)
 		TOOL_PEOPLE:
@@ -685,7 +708,7 @@ func _cell_from_screen_position(position: Vector2) -> Vector2i:
 
 
 func _try_start_boat_drag(position: Vector2) -> bool:
-	if selected_tool != TOOL_CATCH:
+	if selected_tool != TOOL_CATCH or not _is_boat_unlocked():
 		return false
 
 	var cell := _cell_from_screen_position(position)
@@ -724,6 +747,10 @@ func _set_boat_target_from_screen(position: Vector2) -> void:
 
 func _use_catch_tool(cell: Vector2i) -> void:
 	var tile: Dictionary = tiles[cell.y][cell.x]
+	if not _is_boat_unlocked():
+		_try_manual_shore_catch(cell)
+		return
+
 	if tile["kind"] == TileKind.WATER:
 		boat_agent.set_target(_water_cell_target(cell))
 		status_text = "Boat heading to " + _water_zone_name(int(tile["water_zone"])) + ". Drag to guide it, then tap the dock to unload."
@@ -754,7 +781,174 @@ func _use_catch_tool(cell: Vector2i) -> void:
 		_add_popup_for_cell(cell, "+" + str(moved) + " live", Color("#9fe4dd"))
 		return
 
-	status_text = "Catch works on water, the dock, or pools when carrying fish."
+	status_text = "Fish works on water and the dock. Walk is for carrying catches between stations."
+
+
+func _move_player_to(cell: Vector2i) -> void:
+	var tile: Dictionary = tiles[cell.y][cell.x]
+	if tile["kind"] == TileKind.WATER or tile["kind"] == TileKind.EXPANSION:
+		status_text = "The fisherman can walk on owned land, docks, plazas, and roads."
+		return
+	player_agent.set_target(Vector2(cell.x, cell.y))
+	status_text = "Fisherman walking to " + _tile_surface_name(int(tile["kind"])) + "."
+	_add_popup_for_cell(cell, "On my way", Color("#f2d16b"))
+
+
+func _try_manual_shore_catch(cell: Vector2i) -> void:
+	var tile: Dictionary = tiles[cell.y][cell.x]
+	if tile["kind"] != TileKind.WATER:
+		status_text = "Walk to the dock, then tap a visible fish in nearby water."
+		return
+	if _player_fish_total() >= PLAYER_FISH_CAPACITY:
+		status_text = "Basket full. Walk to the pool or cutter before catching more fish."
+		return
+	if player_agent.position.distance_to(Vector2(cell.x + 0.5, cell.y + 0.5)) > 1.45:
+		status_text = "Walk closer to the dock beside that fish before casting."
+		return
+
+	var fish_index := _active_fish_index_in_cell(cell)
+	if fish_index < 0:
+		status_text = "No fish in that patch right now. Try another ripple."
+		return
+
+	var fish = active_fish_agents[fish_index]
+	active_fish_agents.remove_at(fish_index)
+	var fish_kind := int(fish.fish_kind)
+	_add_fish_to_stock(player_fish_stock, fish_kind, 1)
+	var water_zone := int(tile["water_zone"])
+	water_zone_catches[water_zone] = int(water_zone_catches[water_zone]) + 1
+	fish_caught_total += 1
+	_add_fish_to_stock(fish_caught_by_kind, fish_kind, 1)
+	status_text = "Caught a " + _fish_name(fish_kind) + ". Basket " + str(_player_fish_total()) + "/" + str(PLAYER_FISH_CAPACITY) + "." + _maybe_award_zone_discovery(water_zone) + _maybe_unlock_storage(fish_kind)
+	_add_popup(_fish_name(fish_kind), _world_to_screen(fish.position), _fish_color(fish_kind))
+
+
+func _active_fish_index_in_cell(cell: Vector2i) -> int:
+	var closest_index := -1
+	var closest_distance := INF
+	var cell_center := Vector2(cell.x + 0.5, cell.y + 0.5)
+	for i in active_fish_agents.size():
+		var fish = active_fish_agents[i]
+		if Vector2i(int(floor(fish.position.x)), int(floor(fish.position.y))) != cell:
+			continue
+		var distance: float = fish.position.distance_to(cell_center)
+		if distance < closest_distance:
+			closest_distance = distance
+			closest_index = i
+	return closest_index
+
+
+func _tick_player(delta: float) -> void:
+	player_agent.tick(delta)
+	player_sale_cooldown = max(0.0, player_sale_cooldown - delta)
+	if not player_agent.is_at_target():
+		return
+
+	var cell := _player_cell()
+	if cell.x < 0:
+		return
+	var tile: Dictionary = tiles[cell.y][cell.x]
+	match int(tile["building"]):
+		BuildKind.POOL:
+			_player_unload_fish_to_pool(cell)
+		BuildKind.CUTTER:
+			_tick_player_cutter(cell, delta)
+		BuildKind.MARKET:
+			_try_player_sale(cell)
+		_:
+			player_cut_progress = 0.0
+
+
+func _player_cell() -> Vector2i:
+	var cell := Vector2i(int(round(player_agent.position.x)), int(round(player_agent.position.y)))
+	if cell.x < 0 or cell.y < 0 or cell.x >= GRID_W or cell.y >= GRID_H:
+		return Vector2i(-1, -1)
+	return cell
+
+
+func _player_fish_total() -> int:
+	return _stock_total(player_fish_stock)
+
+
+func _player_unload_fish_to_pool(cell: Vector2i) -> void:
+	if _player_fish_total() <= 0:
+		return
+	var room := _pool_capacity() - _live_fish_total()
+	if room <= 0:
+		status_text = "Pool is full. Process fish at the cutter or upgrade the pool."
+		return
+	var moved := _move_fish_between_stocks(player_fish_stock, live_fish_stock, room)
+	if moved <= 0:
+		return
+	fish_stored_total += moved
+	status_text = "Fisherman dropped " + str(moved) + " fish in the pool."
+	_add_popup_for_cell(cell, "Pool +" + str(moved), Color("#9fe4dd"))
+
+
+func _tick_player_cutter(cell: Vector2i, delta: float) -> void:
+	if player_meat >= PLAYER_MEAT_CAPACITY:
+		player_cut_progress = 0.0
+		status_text = "Hands full of meat. Walk it to the market."
+		return
+	if _player_fish_total() <= 0 and _live_fish_total() > 0:
+		var fish_kind := _take_next_live_fish_kind()
+		_add_fish_to_stock(player_fish_stock, fish_kind, 1)
+		status_text = "Fisherman lifted a " + _fish_name(fish_kind) + " from the pool for cutting."
+		_add_popup_for_cell(cell, "Fish in hand", _fish_color(fish_kind))
+		return
+	if _player_fish_total() <= 0:
+		player_cut_progress = 0.0
+		return
+
+	player_cut_progress += delta
+	if player_cut_progress < PLAYER_CUT_SECONDS:
+		return
+	player_cut_progress = 0.0
+	var fish_kind := _take_next_fish_kind(player_fish_stock)
+	var produced := _fish_meat_yield(fish_kind)
+	produced = min(produced, PLAYER_MEAT_CAPACITY - player_meat)
+	if produced <= 0:
+		return
+	player_meat += produced
+	meat_processed_total += produced
+	status_text = "Fisherman cut a " + _fish_name(fish_kind) + " into " + str(produced) + " meat."
+	_add_popup_for_cell(cell, "+" + str(produced) + " meat", Color("#ffd7bb"))
+
+
+func _try_player_sale(cell: Vector2i) -> void:
+	if player_meat <= 0 or player_sale_cooldown > 0.0:
+		return
+	var waiting_indices := _waiting_customer_indices()
+	for customer_index in waiting_indices:
+		var customer: Dictionary = customer_agents[int(customer_index)]
+		if int(customer["kind"]) == BuyerKind.COOK:
+			continue
+		player_meat -= 1
+		meat_sold_total += 1
+		money += MEAT_PRICE
+		customer["remaining"] = int(customer["remaining"]) - 1
+		customer["patience"] = _buyer_patience(int(customer["kind"]))
+		if int(customer["remaining"]) <= 0:
+			if int(customer["kind"]) == BuyerKind.MERCHANT:
+				money += MERCHANT_BULK_BONUS
+				merchant_orders_completed_total += 1
+			customer["state"] = "leaving_happy"
+			customer["target"] = customer["exit"]
+			_record_buyer_served(int(customer["kind"]))
+		customer_agents[int(customer_index)] = customer
+		player_sale_cooldown = PLAYER_SALE_SECONDS
+		status_text = "Fisherman handed over meat for $" + str(MEAT_PRICE) + "."
+		_add_popup_for_cell(cell, "+$" + str(MEAT_PRICE), Color("#b7ef8a"))
+		_update_customer_counts()
+		return
+
+
+func _take_next_fish_kind(stock: Array) -> int:
+	for fish_kind: int in [FishKind.SILVERFISH, FishKind.CARP, FishKind.MINNOW]:
+		if int(stock[fish_kind]) > 0:
+			stock[fish_kind] = int(stock[fish_kind]) - 1
+			return fish_kind
+	return FishKind.MINNOW
 
 
 func _use_people_tool(cell: Vector2i) -> void:
@@ -914,6 +1108,9 @@ func _upgrade_net() -> void:
 
 
 func _upgrade_boat() -> void:
+	if not _is_boat_unlocked():
+		status_text = "The boat arrives after Net 2. Catch and sell fish by hand first."
+		return
 	var cost := _boat_upgrade_cost()
 	if money < cost:
 		status_text = "Need $" + str(cost) + " to upgrade the boat."
@@ -953,6 +1150,9 @@ func _upgrade_cutter() -> void:
 
 
 func _hire_worker() -> void:
+	if not _is_worker_hiring_unlocked():
+		status_text = "A fisherman will join after Net 2 and a few successful hand sales."
+		return
 	if workers.size() >= MAX_WORKERS:
 		status_text = "Worker cap reached. Later housing will raise the people limit."
 		return
@@ -1043,20 +1243,23 @@ func _tick_fish_spawns(delta: float) -> void:
 
 
 func _tick_active_fishing(delta: float) -> void:
-	_move_boat(delta)
-	_tick_zone_warnings(delta)
+	if _is_boat_unlocked():
+		_move_boat(delta)
+		_tick_zone_warnings(delta)
 
 	var water_min := Vector2(0.15, 0.15)
 	var water_max := Vector2(float(GRID_W) - 0.15, float(WATER_ROWS) - 0.2)
+	var fish_threat: Vector2 = boat_agent.position if _is_boat_unlocked() else Vector2(-100.0, -100.0)
 	for fish in active_fish_agents:
 		var water_zone := _water_zone_at_world_position(fish.position)
-		fish.tick(delta, water_min, water_max, boat_agent.position, _water_zone_speed_modifier(water_zone))
+		fish.tick(delta, water_min, water_max, fish_threat, _water_zone_speed_modifier(water_zone))
 
-	_collect_fish_in_net()
+	if _is_boat_unlocked():
+		_collect_fish_in_net()
 	while active_fish_agents.size() < ACTIVE_FISH_MAX:
 		_spawn_active_fish()
 
-	if _boat_is_at_dock() and _boat_net_count() > 0:
+	if _is_boat_unlocked() and _boat_is_at_dock() and _boat_net_count() > 0:
 		_try_unload_boat()
 
 
@@ -1141,6 +1344,26 @@ func _boat_is_at_dock() -> bool:
 	return boat_agent.is_at(_boat_home_position())
 
 
+func _is_boat_unlocked() -> bool:
+	return net_level >= 2
+
+
+func _is_worker_hiring_unlocked() -> bool:
+	return net_level >= 2 and meat_sold_total >= 4
+
+
+func _has_cutter_automation() -> bool:
+	return _worker_count_assigned_to_building(BuildKind.CUTTER) > 0
+
+
+func _has_smoker_automation() -> bool:
+	return _worker_count_assigned_to_building(BuildKind.SMOKER) > 0
+
+
+func _has_market_automation() -> bool:
+	return _worker_count_assigned_to_building(BuildKind.MARKET) > 0
+
+
 func _boat_direction() -> Vector2:
 	return boat_agent.direction()
 
@@ -1167,7 +1390,7 @@ func _boat_net_count() -> int:
 
 func _tick_cutters(delta: float) -> void:
 	var cutter_count := _building_count(BuildKind.CUTTER)
-	if cutter_count <= 0 or _live_fish_total() <= 0:
+	if cutter_count <= 0 or _live_fish_total() <= 0 or not _has_cutter_automation():
 		cutter_progress = 0.0
 		return
 	if meat >= _meat_capacity():
@@ -1193,7 +1416,7 @@ func _tick_cutters(delta: float) -> void:
 
 func _tick_smokers(delta: float) -> void:
 	var smoker_count := _building_count(BuildKind.SMOKER)
-	if smoker_count <= 0:
+	if smoker_count <= 0 or not _has_smoker_automation():
 		smoker_progress = 0.0
 		return
 	if meat < SMOKER_INPUT_MEAT:
@@ -1242,6 +1465,9 @@ func _tick_customers(delta: float) -> void:
 		customer_timer = _next_customer_seconds()
 
 	_tick_customer_agents(delta)
+	if not _has_market_automation():
+		_update_customer_counts()
+		return
 
 	market_sell_timer -= delta
 	if market_sell_timer > 0.0:
@@ -2055,11 +2281,7 @@ func _move_fish_between_stocks(from_stock: Array, to_stock: Array, max_count: in
 
 
 func _take_next_live_fish_kind() -> int:
-	for fish_kind: int in [FishKind.SILVERFISH, FishKind.CARP, FishKind.MINNOW]:
-		if int(live_fish_stock[fish_kind]) > 0:
-			live_fish_stock[fish_kind] = int(live_fish_stock[fish_kind]) - 1
-			return fish_kind
-	return FishKind.MINNOW
+	return _take_next_fish_kind(live_fish_stock)
 
 
 func _stock_summary(stock: Array) -> String:
@@ -2178,8 +2400,10 @@ func _tool_cost(tool: String) -> int:
 
 func _tool_label(tool: String) -> String:
 	match tool:
+		TOOL_WALK:
+			return "Walk"
 		TOOL_CATCH:
-			return "Catch"
+			return "Fish"
 		TOOL_MAP:
 			return "Map"
 		TOOL_PEOPLE:
@@ -2262,7 +2486,7 @@ func _maybe_unlock_storage(fish_kind: int) -> String:
 
 
 func _net_upgrade_cost() -> int:
-	return 20 + (net_level - 1) * 15
+	return 50 + (net_level - 1) * 25
 
 
 func _boat_upgrade_cost() -> int:
@@ -2279,7 +2503,7 @@ func _cutter_upgrade_cost() -> int:
 
 func _net_unlock_text() -> String:
 	if net_level == 2:
-		return " Net capacity is now " + str(_boat_net_capacity()) + ". Silverfish can now appear in the water."
+		return " The boat is ready at the dock, and silverfish can now appear offshore."
 	if net_level == 3:
 		return " Net radius grew again. Better fish now appear more often."
 	return " Net capacity is now " + str(_boat_net_capacity()) + "."
@@ -2551,19 +2775,21 @@ func _update_hud() -> void:
 
 	var capacity := _pool_capacity()
 	var smoked_text := ""
+	var boat_text := "Boat:locked"
+	if _is_boat_unlocked():
+		boat_text = "Boat:%d/%d" % [_boat_net_count(), _boat_net_capacity()]
 	if _is_smoker_unlocked() or smoked_meat > 0:
 		smoked_text = "   Smoke:%d/%d" % [smoked_meat, _smoked_meat_capacity()]
-	hud_label.text = "Coldwater Catch\n$%d   Carry:%d %s   Boat:%d/%d   Live:%d/%d %s   Meat:%d/%d%s\nBuyers:%d/%d   Queue:%d   Lost:%d   Patience:%ds   Crew:%d/%d\nNet %d   Boat %d   Pool %d   Cutter %d   Claimed:%d   Map:%dx%d" % [
+	hud_label.text = "Coldwater Catch\n$%d   You:F%d/%d M%d/%d   %s   Pool:%d/%d %s%s\nBuyers:%d/%d   Queue:%d   Lost:%d   Patience:%ds   Crew:%d/%d\nNet %d   Boat %d   Pool %d   Cutter %d   Claimed:%d   Map:%dx%d" % [
 		money,
-		_carried_fish_total(),
-		_stock_summary(carried_fish_stock),
-		_boat_net_count(),
-		_boat_net_capacity(),
+		_player_fish_total(),
+		PLAYER_FISH_CAPACITY,
+		player_meat,
+		PLAYER_MEAT_CAPACITY,
+		boat_text,
 		_live_fish_total(),
 		capacity,
 		_stock_summary(live_fish_stock),
-		meat,
-		_meat_capacity(),
 		smoked_text,
 		customer_agents.size(),
 		MAX_CUSTOMERS,
@@ -2601,8 +2827,8 @@ func _update_tool_buttons() -> void:
 		net_button.modulate = _affordability_color(_net_upgrade_cost())
 	if command_buttons.has("boat"):
 		var boat_button: Button = command_buttons["boat"]
-		boat_button.text = "Boat $" + str(_boat_upgrade_cost())
-		boat_button.modulate = _affordability_color(_boat_upgrade_cost())
+		boat_button.text = "Boat L" if not _is_boat_unlocked() else "Boat $" + str(_boat_upgrade_cost())
+		boat_button.modulate = Color("#6f7782") if not _is_boat_unlocked() else _affordability_color(_boat_upgrade_cost())
 	if command_buttons.has("pool"):
 		var pool_button: Button = command_buttons["pool"]
 		pool_button.text = "Pool $" + str(_pool_upgrade_cost())
@@ -2613,8 +2839,12 @@ func _update_tool_buttons() -> void:
 		cutter_button.modulate = _affordability_color(_cutter_upgrade_cost())
 	if command_buttons.has("hire"):
 		var hire_button: Button = command_buttons["hire"]
-		hire_button.text = "Hire $" + str(COST_WORKER) if workers.size() < MAX_WORKERS else "Crew full"
-		hire_button.modulate = _affordability_color(COST_WORKER) if workers.size() < MAX_WORKERS else Color("#6f7782")
+		if not _is_worker_hiring_unlocked():
+			hire_button.text = "Hire L"
+			hire_button.modulate = Color("#6f7782")
+		else:
+			hire_button.text = "Hire $" + str(COST_WORKER) if workers.size() < MAX_WORKERS else "Crew full"
+			hire_button.modulate = _affordability_color(COST_WORKER) if workers.size() < MAX_WORKERS else Color("#6f7782")
 
 
 func _calculate_grid_rect() -> void:
@@ -2801,6 +3031,11 @@ func _draw_people() -> void:
 		if grid_rect.grow(tile_px * 0.6).has_point(worker_screen):
 			_draw_person(worker_screen, Color("#f2d16b"), i == selected_worker_index, "W")
 
+	var player_screen := _agent_screen_pos(player_agent.position)
+	if grid_rect.grow(tile_px * 0.6).has_point(player_screen):
+		_draw_person(player_screen, Color("#e87d52"), true, "YOU")
+		_draw_player_carry(player_screen)
+
 
 func _draw_active_fishing() -> void:
 	for fish in active_fish_agents:
@@ -2809,6 +3044,8 @@ func _draw_active_fishing() -> void:
 		if grid_rect.grow(tile_px * 0.3).has_point(fish_screen):
 			_draw_fish(fish_screen, tile_px * 0.13, fish_agent.fish_kind)
 
+	if not _is_boat_unlocked():
+		return
 	var boat_screen := _world_to_screen(boat_agent.position)
 	if not grid_rect.grow(tile_px).has_point(boat_screen):
 		return
@@ -2919,6 +3156,17 @@ func _draw_want_bubble(center: Vector2, label: String, color: Color) -> void:
 	draw_string(font, bubble.position + Vector2(0, 11.0), label, HORIZONTAL_ALIGNMENT_CENTER, bubble.size.x, 11, Color("#17212b"))
 
 
+func _draw_player_carry(center: Vector2) -> void:
+	var parts: Array = []
+	if _player_fish_total() > 0:
+		parts.append("F" + str(_player_fish_total()))
+	if player_meat > 0:
+		parts.append("M" + str(player_meat))
+	if parts.is_empty():
+		return
+	_draw_want_bubble(center, " ".join(parts), Color("#e87d52"))
+
+
 func _draw_land_tile(rect: Rect2, building: int) -> void:
 	match building:
 		BuildKind.NONE:
@@ -2978,8 +3226,13 @@ func _draw_footer_hint() -> void:
 	var font := get_theme_default_font()
 	var hint := ""
 	match selected_tool:
+		TOOL_WALK:
+			hint = "Walk: tap land, dock, plaza, or road. Pools, cutters, and markets work when you arrive."
 		TOOL_CATCH:
-			hint = "Catch: drag on water to steer the boat, tap dock to unload the net." + _water_zone_warning_label()
+			if _is_boat_unlocked():
+				hint = "Fish: drag on water to steer the boat, tap dock to unload the net." + _water_zone_warning_label()
+			else:
+				hint = "Fish: stand at the dock and tap a visible fish in nearby water. Basket " + str(_player_fish_total()) + "/" + str(PLAYER_FISH_CAPACITY) + "."
 		TOOL_PEOPLE:
 			if selected_worker_index >= 0 and selected_worker_index < workers.size():
 				hint = "People: " + _worker_name(selected_worker_index) + " selected. Tap water, a building, or land."
@@ -3021,7 +3274,7 @@ func _cell_rect(cell: Vector2i) -> Rect2:
 
 func _selected_tile_text() -> String:
 	if selected_cell.x < 0:
-		return "Tile: drag water, tap people, pools, cutters, or markets to inspect them."
+		return "You: tap Walk to move the fisherman between fish, pool, cutter, and market."
 
 	if _is_dock_order_unlocked() and selected_cell == _order_board_cell():
 		if dock_order_active:

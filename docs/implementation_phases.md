@@ -14,6 +14,14 @@ Decision:
 
 Use Graphify later as a documentation and architecture-map companion, but do not depend on it for GDScript code structure until `.gd` support exists or we add language-neutral architecture sidecars.
 
+## Direction Pivot: Manual First, Automation Earned
+
+Decision: the earlier tile-strategy prototype work remains useful foundation work, but it is no longer the main game direction. Coldwater Catch is now a character-driven fishing-business progression game:
+
+Manual fishing -> carrying -> manual processing -> hand sale -> upgrade -> hired automation -> area unlock -> offshore fishing -> industrial fishery.
+
+The player should begin as one visible fisherman doing every job. Workers, cutters, markets, boats, and trucks become satisfying because they visibly take over work the player has already performed. Individual tile adjacency remains a light presentation and placement aid, not the primary optimisation challenge. Danger is delayed until this progression loop is compelling.
+
 ## Phase 1: Fun Core
 
 Status: playable baseline complete.
@@ -25,8 +33,8 @@ Implemented:
 - starter working fishery with pool, cutter, and market already placed
 - tap water to catch fish in the first prototype loop, later replaced by Phase 4.5 boat fishing
 - tap pool to store carried fish
-- cutter automatically processes live fish into meat
-- market automatically sells meat to waiting buyers
+- cutter automatically processed live fish into meat in the original prototype; Phase 4.7 restores manual cutting until staffed
+- market automatically sold meat in the original prototype; Phase 4.7 restores hand sales until staffed
 - money, buyers, carried fish, live fish, and meat HUD
 - net, pool, and cutter upgrades
 - guided objective chain for the first loop
@@ -151,7 +159,7 @@ Implemented:
 - buyers now spawn as moving people, walk to markets, wait, buy, and leave
 - buyer patience is tracked per person instead of only as a shared queue timer
 - more markets and staffed markets increase buyer flow
-- one starter worker appears on the board
+- one starter worker appeared on the board in the original living-base prototype; Phase 4.7 removes it so automation is earned
 - workers can be hired up to the current crew cap
 - People tool lets the player select a worker and assign them to water, land, or buildings
 - water workers catch fish and carry them directly to pools
@@ -267,9 +275,49 @@ Next:
 - add a minimap or landmark navigation only after the world becomes large enough to justify it
 - begin Phase 5 cold pressure after this spatial foundation has settled
 
+## Phase 4.7: Manual Fisherman Foundation
+
+Status: first manual-first slice complete.
+
+Goal: make the player character and physical handoffs the heart of the first minutes.
+
+Needs:
+
+- [x] one visible player character on the map
+- [x] tap-to-move walking on owned land, dock, plaza, and road
+- [x] manual shore catches with a small fish basket
+- [x] visible carried fish and meat state
+- [x] player-delivered pool handoff
+- [x] player-operated cutter before cutter automation
+- [x] player-to-buyer hand sale before market automation
+- [x] no starter worker
+- [x] worker hiring delayed until the manual loop is proven
+- [x] boat hidden until its progression unlock
+
+Implemented:
+
+- added `scripts/people/PlayerAgent.gd` for the controllable fisherman
+- Walk sends the fisherman to a tapped walkable surface
+- Fish catches a visible nearby fish while the fisherman is at the dock; the basket holds three fish
+- pools accept hand-carried fish automatically when the player arrives
+- the player manually operates cutters and carries up to three meat to a market
+- a waiting villager receives hand-delivered meat and pays the fisherman directly
+- the starter cutter and market no longer run automatically; a worker assigned to each station is now the automation switch
+- the first worker starts absent, costs $150, and unlocks only after Net 2 plus four hand sales
+- Net 2 now unlocks the boat and offshore fishing; the boat does not render or respond before that point
+- early prices now support the intended rhythm: $12 hand sales and a $50 first net upgrade
+
+Next:
+
+- refine player movement into path-aware movement around buildings and visible interaction ranges
+- give the worker a complete physical catch-carry-deposit route instead of direct stock transfer
+- make the cutter, pool, market, and net upgrades visually change in the world
+- replace individual frontier purchases with named area-unlock gates and visible reveal moments
+- delay Phase 5 danger until these manual and automation handoffs feel good in playtesting
+
 ## Phase 5: Danger
 
-Status: planned.
+Status: deferred until the manual-first progression loop is proven.
 
 Goal: make the world feel dangerous and memorable.
 
