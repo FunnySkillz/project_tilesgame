@@ -42,6 +42,8 @@ The base should feel alive, even before advanced automation exists.
 
 The grid is the heart of the game. Space must matter.
 
+The playable world should feel like a settlement site, not one static screen. The current prototype uses a 16x18 world viewed through a phone-sized camera: the player begins around the dock and plaza, then pans outward and claims connected frontier tiles. This leaves genuine room for later industrial yards, defensible shorelines, truck access, and specialized districts without reducing every tile to an unreadable speck.
+
 Good placement should improve efficiency:
 
 - pools near water reduce handling friction

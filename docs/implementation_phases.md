@@ -114,7 +114,7 @@ Implemented:
 - Storage building adds meat capacity
 - Storage gets bonus capacity beside markets
 - storage removal and movement are blocked when the building is needed for current meat capacity
-- edge expansion tiles start locked
+- first board-edge expansion tiles started locked, later replaced by the larger connected frontier in Phase 4.6
 - Expand tool unlocks after building Storage
 - expansion converts edge ground into buildable land for money
 - goal and unlock text now guide the player through Storage into land expansion
@@ -235,6 +235,37 @@ Next:
 - start Phase 5 with a visible cold meter or cold-wave timer
 - connect monster-water warning to the first real monster/counterplay loop later
 - keep graphics procedural until net shape, boat scale, and fish readability feel good
+
+## Phase 4.6: Larger World And Territorial Expansion
+
+Status: first large-map slice complete.
+
+Goal: make the fishery feel like a place that can grow into a settlement, not a single-screen puzzle board.
+
+Needs:
+
+- [x] larger world with room for future production, trade, defense, and trucks
+- [x] readable phone-sized map viewport instead of tiny full-map tiles
+- [x] map panning controls
+- [x] central starter district with a working shore, plaza, and trade lane
+- [x] a broad expansion frontier
+- [x] connected territorial expansion rules
+
+Implemented:
+
+- the board grew from 8x10 to a 16x18 world map
+- the player now sees a readable camera-sized slice of the world rather than a shrunken full board
+- the Map tool pans across the fishery; Center returns to the starter district
+- the starting layout now has four rows of water, a dedicated dock, a central starter district, a plaza-to-market route, and a road trade lane
+- most land outside the starter district begins as locked frontier, leaving substantial space for the later industry, defenses, and truck systems
+- expansions must connect to owned land, dock, plaza, or road, so the base grows outward as a coherent territory
+- all existing boat, fish, worker, buyer, building, and order-board logic now uses world coordinates and follows the camera
+
+Next:
+
+- playtest camera size, panning feel, starter-district size, frontier prices, and fish-zone placement
+- add a minimap or landmark navigation only after the world becomes large enough to justify it
+- begin Phase 5 cold pressure after this spatial foundation has settled
 
 ## Phase 5: Danger
 

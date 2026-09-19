@@ -2,6 +2,8 @@
 
 Coldwater Catch is a portrait-first tile game about building a rough fishery on the edge of dangerous cold water. The player starts with a few land and water tiles, steers a small boat through visible fish, unloads the net into pools, processes fish into meat, and sells the goods to buyers.
 
+The prototype world is larger than one phone screen. A 16x18 territory contains a compact starter fishery, then a broad locked frontier that the player claims outward tile by tile. The player pans the camera to work across the growing settlement while keeping individual tiles legible.
+
 ## Core Loop
 
 1. Steer the boat through water and catch visible fish in a net.
@@ -31,6 +33,8 @@ The first playable version focuses only on the loop:
 - workers can be hired, moved, and assigned to jobs
 - storage increases processed-goods capacity
 - edge expansion adds buildable land
+- expansion must connect to existing land, dock, plaza, or road, creating an outward-growing territory
+- Map mode pans across the larger fishery; Center returns to the starter district
 - smokers turn meat into higher-value smoked meat
 - upgrades improve net, boat speed/hold, pools, and cutters
 

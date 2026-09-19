@@ -6,9 +6,10 @@ A Godot 4 mobile prototype for a tile-based fishing and processing game.
 
 Open this folder in Godot 4.7.2 or newer and press Play.
 
-The current prototype is intentionally small:
+The current prototype focuses on the core systems:
 
 - drag on water with the Catch tool to steer the boat
+- select Map and drag the board to pan around the 16x18 fishery; Center returns to the starter district
 - sweep visible fish into the net, then tap the dock to unload into pools
 - a starter pool, cutter, and market are already placed
 - build extra pools, cutters, and markets on buildable land, dock, and plaza tiles
@@ -36,7 +37,7 @@ The current prototype is intentionally small:
 - Net level 2 unlocks silverfish and increases the visible boat net capacity/size
 - Boat upgrades improve travel speed, increase the net hold, and add small visual details
 - catching silverfish unlocks Storage, which increases meat capacity
-- building Storage unlocks Expand, which buys edge ground into buildable land
+- building Storage unlocks Expand, which claims connected frontier ground into buildable land
 - steady sales unlock the Smoker, which turns meat into higher-value smoked meat
 - the goal chain now carries the player through the first progression branch
 

@@ -10,9 +10,10 @@ enum BuyerKind { VILLAGER, COOK, MERCHANT }
 const BoatAgentScript := preload("res://scripts/fishing/BoatAgent.gd")
 const FishAgentScript := preload("res://scripts/fishing/FishAgent.gd")
 
-const GRID_W := 8
-const GRID_H := 10
-const WATER_ROWS := 3
+const GRID_W := 16
+const GRID_H := 18
+const WATER_ROWS := 4
+const ROAD_ROW := 12
 const MAX_CUSTOMERS := 12
 
 const TOOL_CATCH := "catch"
@@ -23,6 +24,7 @@ const TOOL_MARKET := "market"
 const TOOL_STORAGE := "storage"
 const TOOL_SMOKER := "smoker"
 const TOOL_EXPAND := "expand"
+const TOOL_MAP := "map"
 const TOOL_MOVE := "move"
 const TOOL_REMOVE := "remove"
 
@@ -44,7 +46,7 @@ const WORKER_POOL_CAPACITY_BONUS := 2
 const WORKER_CUTTER_RATE_BONUS := 0.35
 const WORKER_SMOKER_RATE_BONUS := 0.35
 const ACTIVE_FISH_MAX := 18
-const BOAT_DOCK_X := 2.5
+const BOAT_DOCK_X := 5.5
 const NET_CATCH_RADIUS := 0.34
 const MONSTER_WARNING_SECONDS := 6.0
 const MONSTER_WARNING_DECAY := 1.15
@@ -106,6 +108,10 @@ var selected_worker_index := -1
 var active_fish_agents: Array = []
 var boat_agent = BoatAgentScript.new()
 var dragging_boat := false
+var dragging_map := false
+var map_drag_origin := Vector2.ZERO
+var map_camera_drag_origin := Vector2.ZERO
+var map_camera := Vector2(2.0, 2.0)
 var water_zone_catches: Array = [0, 0, 0, 0, 0]
 var water_zone_discovered: Array = [false, false, false, false, false]
 var monster_warning := 0.0
@@ -132,6 +138,8 @@ func _ready() -> void:
 	_init_active_fishing()
 	_init_people()
 	_build_ui()
+	_calculate_grid_rect()
+	_center_map(false)
 	_update_hud()
 	set_process(true)
 	queue_redraw()
@@ -154,20 +162,28 @@ func _process(delta: float) -> void:
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
-			if not _try_start_boat_drag(event.position):
+			if not _try_start_map_drag(event.position) and not _try_start_boat_drag(event.position):
 				_try_handle_tap(event.position)
 		else:
 			dragging_boat = false
-	elif event is InputEventMouseMotion and dragging_boat:
-		_update_boat_drag(event.position)
+			dragging_map = false
+	elif event is InputEventMouseMotion:
+		if dragging_map:
+			_update_map_drag(event.position)
+		elif dragging_boat:
+			_update_boat_drag(event.position)
 	elif event is InputEventScreenTouch:
 		if event.pressed:
-			if not _try_start_boat_drag(event.position):
+			if not _try_start_map_drag(event.position) and not _try_start_boat_drag(event.position):
 				_try_handle_tap(event.position)
 		else:
 			dragging_boat = false
-	elif event is InputEventScreenDrag and dragging_boat:
-		_update_boat_drag(event.position)
+			dragging_map = false
+	elif event is InputEventScreenDrag:
+		if dragging_map:
+			_update_map_drag(event.position)
+		elif dragging_boat:
+			_update_boat_drag(event.position)
 
 
 func _notification(what: int) -> void:
@@ -192,17 +208,17 @@ func _init_tiles() -> void:
 		var row: Array = []
 		for x in GRID_W:
 			var cell := Vector2i(x, y)
-			var kind := TileKind.LAND
+			var kind := TileKind.EXPANSION
 			if y < WATER_ROWS:
 				kind = TileKind.WATER
-			elif y == GRID_H - 1:
+			elif y == ROAD_ROW:
 				kind = TileKind.ROAD
-			elif x == 0 or x == GRID_W - 1:
-				kind = TileKind.EXPANSION
-			elif y == WATER_ROWS and x <= 5:
+			elif y == WATER_ROWS and x >= 3 and x <= 10:
 				kind = TileKind.DOCK
 			elif _is_starter_plaza_cell(cell):
 				kind = TileKind.PLAZA
+			elif _is_starter_land_cell(cell):
+				kind = TileKind.LAND
 			var water_zone := _water_zone_for_cell(cell) if kind == TileKind.WATER else WaterZone.SHALLOW
 			var fish_kind := _random_fish_kind_for_zone(water_zone)
 			var fish_count := randi_range(1, 2) if kind == TileKind.WATER and randf() < 0.45 else 0
@@ -216,19 +232,23 @@ func _init_tiles() -> void:
 			})
 		tiles.append(row)
 
-	_set_starter_building(Vector2i(1, 3), BuildKind.POOL)
-	_set_starter_building(Vector2i(2, 3), BuildKind.CUTTER)
-	_set_starter_building(Vector2i(6, 8), BuildKind.MARKET)
+	_set_starter_building(Vector2i(4, WATER_ROWS), BuildKind.POOL)
+	_set_starter_building(Vector2i(5, WATER_ROWS), BuildKind.CUTTER)
+	_set_starter_building(Vector2i(10, ROAD_ROW - 1), BuildKind.MARKET)
 
 
 func _is_starter_plaza_cell(cell: Vector2i) -> bool:
-	if cell.x == 4 and cell.y >= 4 and cell.y <= 8:
+	if cell.x == 8 and cell.y >= WATER_ROWS + 1 and cell.y <= ROAD_ROW - 1:
 		return true
-	if cell.y == 8 and cell.x >= 4 and cell.x <= 6:
+	if cell.y == ROAD_ROW - 1 and cell.x >= 8 and cell.x <= 10:
 		return true
-	if cell.y == 7 and cell.x >= 5 and cell.x <= 6:
+	if cell.y == ROAD_ROW - 2 and cell.x >= 9 and cell.x <= 10:
 		return true
 	return false
+
+
+func _is_starter_land_cell(cell: Vector2i) -> bool:
+	return cell.x >= 4 and cell.x <= 11 and cell.y >= WATER_ROWS + 1 and cell.y < ROAD_ROW
 
 
 func _is_buildable_tile_kind(kind: int) -> bool:
@@ -266,9 +286,9 @@ func _water_zone_for_cell(cell: Vector2i) -> int:
 		return WaterZone.SHALLOW
 	if cell.y == WATER_ROWS - 1:
 		return WaterZone.SHALLOW
-	if cell.y == 0 and cell.x >= GRID_W - 3:
+	if cell.y == 0 and cell.x >= GRID_W - 4:
 		return WaterZone.MONSTER
-	if cell.x <= 1:
+	if cell.x <= 2:
 		return WaterZone.COLD
 	if cell.y == 0:
 		return WaterZone.DEEP
@@ -460,7 +480,7 @@ func _init_people() -> void:
 	customer_agents.clear()
 	workers.clear()
 	selected_worker_index = -1
-	_spawn_worker(Vector2i(3, 8), false)
+	_spawn_worker(Vector2i(7, ROAD_ROW - 2), false)
 
 
 func _build_ui() -> void:
@@ -525,6 +545,7 @@ func _build_ui() -> void:
 	bottom_box.add_child(actions)
 
 	_add_tool_button(actions, TOOL_CATCH, "Catch", "Drag on water to steer the boat, tap dock to unload, or tap a pool to deposit carried fish.")
+	_add_tool_button(actions, TOOL_MAP, "Map", "Select Map, then drag the board to pan across the larger fishery.")
 	_add_tool_button(actions, TOOL_PEOPLE, "People", "Select a worker, then tap water, a building, or land to assign them.")
 	_add_tool_button(actions, TOOL_POOL, "Pool $10", "Build live fish capacity on a buildable tile.")
 	_add_tool_button(actions, TOOL_CUTTER, "Cutter $15", "Build processing on a buildable tile.")
@@ -539,6 +560,7 @@ func _build_ui() -> void:
 	command_buttons["pool"] = _add_command_button(actions, "Pool +", "Upgrade pools", _upgrade_pool)
 	command_buttons["cutter"] = _add_command_button(actions, "Cutter +", "Upgrade cutters", _upgrade_cutter)
 	command_buttons["hire"] = _add_command_button(actions, "Hire +", "Hire another worker", _hire_worker)
+	_add_command_button(actions, "Center", "Return the map view to the starter fishery", _center_map)
 	_add_command_button(actions, "Clear", "Clear current tool", _select_catch)
 
 
@@ -585,6 +607,38 @@ func _select_catch() -> void:
 	_update_tool_buttons()
 
 
+func _try_start_map_drag(position: Vector2) -> bool:
+	if selected_tool != TOOL_MAP or not grid_rect.has_point(position):
+		return false
+	dragging_map = true
+	map_drag_origin = position
+	map_camera_drag_origin = map_camera
+	status_text = "Map view: drag to pan around the fishery. Use Center to return to the starter district."
+	return true
+
+
+func _update_map_drag(position: Vector2) -> void:
+	if tile_px <= 0.0:
+		return
+	var dragged_cells := (position - map_drag_origin) / tile_px
+	map_camera = map_camera_drag_origin - Vector2(round(dragged_cells.x), round(dragged_cells.y))
+	_clamp_map_camera()
+	queue_redraw()
+
+
+func _center_map(show_status := true) -> void:
+	if grid_rect.size == Vector2.ZERO:
+		_calculate_grid_rect()
+	var visible_cells := grid_rect.size / tile_px
+	map_camera = Vector2(7.5, 7.0) - visible_cells * 0.5
+	map_camera = Vector2(floor(map_camera.x), floor(map_camera.y))
+	_clamp_map_camera()
+	if show_status:
+		status_text = "Map centered on the starter fishery. Select Map and drag to explore the frontier."
+	_update_hud()
+	queue_redraw()
+
+
 func _try_handle_tap(position: Vector2) -> void:
 	var cell := _cell_from_screen_position(position)
 	if cell.x < 0:
@@ -622,10 +676,8 @@ func _cell_from_screen_position(position: Vector2) -> Vector2i:
 	if not grid_rect.has_point(position):
 		return Vector2i(-1, -1)
 
-	var cell := Vector2i(
-		int(floor((position.x - grid_rect.position.x) / tile_px)),
-		int(floor((position.y - grid_rect.position.y) / tile_px))
-	)
+	var world_position := (position - grid_rect.position) / tile_px + map_camera
+	var cell := Vector2i(int(floor(world_position.x)), int(floor(world_position.y)))
 
 	if cell.x < 0 or cell.y < 0 or cell.x >= GRID_W or cell.y >= GRID_H:
 		return Vector2i(-1, -1)
@@ -659,7 +711,7 @@ func _update_boat_drag(position: Vector2) -> void:
 
 
 func _set_boat_target_from_screen(position: Vector2) -> void:
-	var world_position := (position - grid_rect.position) / tile_px
+	var world_position := (position - grid_rect.position) / tile_px + map_camera
 	boat_agent.set_target(Vector2(
 		clamp(world_position.x, 0.25, float(GRID_W) - 0.25),
 		clamp(world_position.y, 0.25, float(WATER_ROWS) - 0.25)
@@ -759,7 +811,10 @@ func _try_expand_land(cell: Vector2i) -> void:
 
 	var tile: Dictionary = tiles[cell.y][cell.x]
 	if tile["kind"] != TileKind.EXPANSION:
-		status_text = "Tap an edge expansion tile to buy more land."
+		status_text = "Tap a frontier expansion tile to buy more land."
+		return
+	if not _is_claimable_frontier(cell):
+		status_text = "Claim frontier tiles beside land, dock, plaza, or road you already control."
 		return
 	if money < COST_EXPAND:
 		status_text = "Need $" + str(COST_EXPAND) + " to expand land."
@@ -769,8 +824,17 @@ func _try_expand_land(cell: Vector2i) -> void:
 	tile["kind"] = TileKind.LAND
 	tiles[cell.y][cell.x] = tile
 	land_expanded_total += 1
-	status_text = "Expanded the base with a new land tile."
+	status_text = "Claimed new land. Build here or keep opening the frontier outward."
 	_add_popup_for_cell(cell, "Land +1", Color("#b7ef8a"))
+
+
+func _is_claimable_frontier(cell: Vector2i) -> bool:
+	for next in _adjacent_cells(cell):
+		var neighbor: Dictionary = tiles[next.y][next.x]
+		var kind := int(neighbor["kind"])
+		if kind == TileKind.LAND or kind == TileKind.DOCK or kind == TileKind.PLAZA or kind == TileKind.ROAD:
+			return true
+	return false
 
 
 func _use_move_tool(cell: Vector2i) -> void:
@@ -897,7 +961,7 @@ func _hire_worker() -> void:
 		return
 
 	money -= COST_WORKER
-	var spawn_cell := Vector2i(clamp(3 + workers.size(), 0, GRID_W - 1), GRID_H - 2)
+	var spawn_cell := Vector2i(clamp(6 + workers.size(), 0, GRID_W - 1), ROAD_ROW - 2)
 	_spawn_worker(spawn_cell, true)
 	selected_tool = TOOL_PEOPLE
 	selected_worker_index = workers.size() - 1
@@ -1266,7 +1330,7 @@ func _tick_customers(delta: float) -> void:
 
 
 func _spawn_customer() -> void:
-	var spawn_cell := Vector2i(randi_range(0, GRID_W - 1), GRID_H - 1)
+	var spawn_cell := Vector2i(randi_range(2, GRID_W - 3), ROAD_ROW)
 	var target_cell := _customer_target_cell()
 	var buyer_kind := _random_buyer_kind()
 	customer_agents.append({
@@ -1433,7 +1497,7 @@ func _dock_order_progress_text() -> String:
 
 
 func _order_board_cell() -> Vector2i:
-	return Vector2i(GRID_W - 2, GRID_H - 1)
+	return Vector2i(GRID_W - 3, ROAD_ROW)
 
 
 func _order_board_center() -> Vector2:
@@ -1581,7 +1645,7 @@ func _buyer_want_text(customer: Dictionary) -> String:
 func _customer_target_cell() -> Vector2i:
 	var markets := _building_cells(BuildKind.MARKET)
 	if markets.is_empty():
-		return Vector2i(GRID_W - 1, GRID_H - 1)
+		return Vector2i(GRID_W - 3, ROAD_ROW)
 	return markets[randi_range(0, markets.size() - 1)]
 
 
@@ -2116,6 +2180,8 @@ func _tool_label(tool: String) -> String:
 	match tool:
 		TOOL_CATCH:
 			return "Catch"
+		TOOL_MAP:
+			return "Map"
 		TOOL_PEOPLE:
 			return "People"
 		TOOL_POOL:
@@ -2487,7 +2553,7 @@ func _update_hud() -> void:
 	var smoked_text := ""
 	if _is_smoker_unlocked() or smoked_meat > 0:
 		smoked_text = "   Smoke:%d/%d" % [smoked_meat, _smoked_meat_capacity()]
-	hud_label.text = "Coldwater Catch\n$%d   Carry:%d %s   Boat:%d/%d   Live:%d/%d %s   Meat:%d/%d%s\nBuyers:%d/%d   Queue:%d   Lost:%d   Patience:%ds   Crew:%d/%d\nNet %d   Boat %d   Pool %d   Cutter %d   Land:%d" % [
+	hud_label.text = "Coldwater Catch\n$%d   Carry:%d %s   Boat:%d/%d   Live:%d/%d %s   Meat:%d/%d%s\nBuyers:%d/%d   Queue:%d   Lost:%d   Patience:%ds   Crew:%d/%d\nNet %d   Boat %d   Pool %d   Cutter %d   Claimed:%d   Map:%dx%d" % [
 		money,
 		_carried_fish_total(),
 		_stock_summary(carried_fish_stock),
@@ -2510,7 +2576,9 @@ func _update_hud() -> void:
 		boat_agent.level,
 		pool_level,
 		cutter_level,
-		land_expanded_total
+		land_expanded_total,
+		GRID_W,
+		GRID_H
 	]
 	goal_label.text = _goal_text()
 	unlock_label.text = _unlock_text()
@@ -2554,15 +2622,27 @@ func _calculate_grid_rect() -> void:
 	var bottom_margin := 272.0
 	var inner_width: float = max(1.0, size.x - 24.0)
 	var inner_height: float = max(1.0, size.y - top_margin - bottom_margin)
-	tile_px = floor(min(inner_width / float(GRID_W), inner_height / float(GRID_H)))
-	tile_px = clamp(tile_px, 34.0, 78.0)
+	tile_px = floor(min(inner_width / 11.5, inner_height / 9.5))
+	tile_px = clamp(tile_px, 38.0, 64.0)
 
-	var grid_size := Vector2(float(GRID_W) * tile_px, float(GRID_H) * tile_px)
+	var grid_size := Vector2(
+		floor(inner_width / tile_px) * tile_px,
+		floor(inner_height / tile_px) * tile_px
+	)
 	var origin := Vector2(
 		floor((size.x - grid_size.x) * 0.5),
 		top_margin + floor(max(0.0, inner_height - grid_size.y) * 0.5)
 	)
 	grid_rect = Rect2(origin, grid_size)
+	_clamp_map_camera()
+
+
+func _clamp_map_camera() -> void:
+	if tile_px <= 0.0 or grid_rect.size == Vector2.ZERO:
+		return
+	var visible_cells := grid_rect.size / tile_px
+	map_camera.x = clamp(floor(map_camera.x), 0.0, max(0.0, float(GRID_W) - visible_cells.x))
+	map_camera.y = clamp(floor(map_camera.y), 0.0, max(0.0, float(GRID_H) - visible_cells.y))
 
 
 func _draw_grid() -> void:
@@ -2571,9 +2651,11 @@ func _draw_grid() -> void:
 		for x in GRID_W:
 			var tile: Dictionary = tiles[y][x]
 			var rect := Rect2(
-				grid_rect.position + Vector2(float(x) * tile_px, float(y) * tile_px),
+				grid_rect.position + Vector2(float(x) * tile_px, float(y) * tile_px) - map_camera * tile_px,
 				Vector2(tile_px, tile_px)
 			).grow(-2.0)
+			if not grid_rect.intersects(rect):
+				continue
 
 			var fill := Color("#5e6747")
 			if tile["kind"] == TileKind.WATER:
@@ -2706,6 +2788,8 @@ func _draw_people() -> void:
 			color = Color("#ff8f7a")
 		var customer_pos: Vector2 = customer["pos"]
 		var screen_pos := _agent_screen_pos(customer_pos)
+		if not grid_rect.grow(tile_px * 0.6).has_point(screen_pos):
+			continue
 		_draw_person(screen_pos, color, false, _buyer_short_label(buyer_kind))
 		if state == "arriving" or state == "waiting":
 			_draw_want_bubble(screen_pos, _buyer_want_label(customer), _buyer_color(buyer_kind))
@@ -2713,15 +2797,21 @@ func _draw_people() -> void:
 	for i in workers.size():
 		var worker: Dictionary = workers[i]
 		var worker_pos: Vector2 = worker["pos"]
-		_draw_person(_agent_screen_pos(worker_pos), Color("#f2d16b"), i == selected_worker_index, "W")
+		var worker_screen := _agent_screen_pos(worker_pos)
+		if grid_rect.grow(tile_px * 0.6).has_point(worker_screen):
+			_draw_person(worker_screen, Color("#f2d16b"), i == selected_worker_index, "W")
 
 
 func _draw_active_fishing() -> void:
 	for fish in active_fish_agents:
 		var fish_agent = fish
-		_draw_fish(_world_to_screen(fish_agent.position), tile_px * 0.13, fish_agent.fish_kind)
+		var fish_screen := _world_to_screen(fish_agent.position)
+		if grid_rect.grow(tile_px * 0.3).has_point(fish_screen):
+			_draw_fish(fish_screen, tile_px * 0.13, fish_agent.fish_kind)
 
 	var boat_screen := _world_to_screen(boat_agent.position)
+	if not grid_rect.grow(tile_px).has_point(boat_screen):
+		return
 	var net_center := _boat_net_center()
 	var net_screen := _world_to_screen(net_center)
 	var net_radius: float = _boat_net_radius() * tile_px
@@ -2780,6 +2870,8 @@ func _draw_dock_order_board() -> void:
 		return
 
 	var rect := _cell_rect(_order_board_cell()).grow(-tile_px * 0.12)
+	if not grid_rect.intersects(rect):
+		return
 	var font := get_theme_default_font()
 	draw_rect(rect, Color("#2c2722"))
 	draw_rect(rect, Color("#f0d597"), false, 2.0)
@@ -2797,11 +2889,11 @@ func _draw_dock_order_board() -> void:
 
 
 func _agent_screen_pos(pos: Vector2) -> Vector2:
-	return grid_rect.position + Vector2((pos.x + 0.5) * tile_px, (pos.y + 0.5) * tile_px)
+	return grid_rect.position + (Vector2(pos.x + 0.5, pos.y + 0.5) - map_camera) * tile_px
 
 
 func _world_to_screen(pos: Vector2) -> Vector2:
-	return grid_rect.position + pos * tile_px
+	return grid_rect.position + (pos - map_camera) * tile_px
 
 
 func _draw_person(center: Vector2, body_color: Color, selected: bool, label: String) -> void:
@@ -2894,7 +2986,9 @@ func _draw_footer_hint() -> void:
 			else:
 				hint = "People: tap a worker, then tap water, a building, or land."
 		TOOL_EXPAND:
-			hint = "Expand: tap edge ground to buy one land tile."
+			hint = "Expand: tap a frontier tile touching territory you already own."
+		TOOL_MAP:
+			hint = "Map: drag to pan across the larger fishery. Center returns to the starter district."
 		TOOL_MOVE:
 			hint = "Move: tap a building, then an empty buildable tile."
 		TOOL_REMOVE:
@@ -2920,7 +3014,7 @@ func _cell_rect(cell: Vector2i) -> Rect2:
 	if grid_rect.size == Vector2.ZERO:
 		_calculate_grid_rect()
 	return Rect2(
-		grid_rect.position + Vector2(float(cell.x) * tile_px, float(cell.y) * tile_px),
+		grid_rect.position + (Vector2(float(cell.x), float(cell.y)) - map_camera) * tile_px,
 		Vector2(tile_px, tile_px)
 	).grow(-2.0)
 
@@ -2962,7 +3056,9 @@ func _selected_tile_text() -> String:
 		return "Tile: road. Markets beside roads gain +1 sale capacity."
 	if tile["kind"] == TileKind.EXPANSION:
 		if _is_land_expansion_unlocked():
-			return "Tile: expansion ground. Use Expand to buy this land for $" + str(COST_EXPAND) + "."
+			if _is_claimable_frontier(selected_cell):
+				return "Tile: claimable frontier. Use Expand to buy this land for $" + str(COST_EXPAND) + "."
+			return "Tile: distant frontier. Claim a connected tile first, then grow outward to reach this land."
 		return "Tile: expansion ground. Build Storage to unlock land expansion."
 
 	match int(tile["building"]):
