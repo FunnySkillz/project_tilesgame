@@ -66,7 +66,7 @@ The base should feel populated early.
 The player character is the first person the player cares about. Other people should then repeat the work the player has already done:
 
 - the player walks, carries, cuts, and sells at the start
-- fishers catch and carry after being hired
+- fishers visibly walk to the dock, catch, carry, and unload after being hired
 - processing and market workers take over familiar manual handoffs
 - buyers physically arrive, wait, buy, and leave
 - more successful selling attracts more foot traffic

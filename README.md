@@ -11,15 +11,14 @@ The current prototype focuses on the core systems:
 - use Walk to move the fisherman across land, docks, plazas, and roads
 - use Fish at the dock to catch nearby visible fish into the fisherman's basket
 - walk to the pool to drop fish, the cutter to process them, and the market to hand meat to waiting buyers
-- the fisherman visibly carries fish and meat; cutter and market automation need workers later
+- the fisherman visibly carries fish and meat; hired fishers visibly carry catches to the pool
 - select Map and drag the board to pan around the 16x18 fishery; Center returns to the starter district
 - Net level 2 unlocks the boat, then Fish can steer it offshore with drag controls
 - a starter pool, cutter, and market are already placed
 - build extra pools, cutters, and markets on buildable land, dock, and plaza tiles
 - dock and plaza tiles make the base read like a working wharf
-- tap a pool with Catch selected to deposit any carried fish
-- cutters automatically process live fish into meat
-- markets automatically serve waiting buyers
+- pools accept hand-carried fish; fishers also carry their own catches to pools
+- cutters and markets run automatically only when a worker is assigned
 - follow the goal line to complete the Phase 1 loop
 - use Move and Remove to improve your tile layout
 - pools work better beside water, cutters work better beside pools, markets work better beside roads

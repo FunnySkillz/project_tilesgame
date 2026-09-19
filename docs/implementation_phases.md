@@ -293,6 +293,7 @@ Needs:
 - [x] no starter worker
 - [x] worker hiring delayed until the manual loop is proven
 - [x] boat hidden until its progression unlock
+- [x] fisher worker visibly catches, carries, and unloads fish
 
 Implemented:
 
@@ -306,11 +307,12 @@ Implemented:
 - the first worker starts absent, costs $150, and unlocks only after Net 2 plus four hand sales
 - Net 2 now unlocks the boat and offshore fishing; the boat does not render or respond before that point
 - early prices now support the intended rhythm: $12 hand sales and a $50 first net upgrade
+- water workers now walk to the dock, fish, visibly carry their catch, walk to the nearest pool, unload, and return to the water
+- worker state text and carry bubbles show fishing, delivery, and blocked-pool states
 
 Next:
 
 - refine player movement into path-aware movement around buildings and visible interaction ranges
-- give the worker a complete physical catch-carry-deposit route instead of direct stock transfer
 - make the cutter, pool, market, and net upgrades visually change in the world
 - replace individual frontier purchases with named area-unlock gates and visible reveal moments
 - delay Phase 5 danger until these manual and automation handoffs feel good in playtesting

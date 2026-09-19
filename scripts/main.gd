@@ -966,9 +966,7 @@ func _use_people_tool(cell: Vector2i) -> void:
 		return
 
 	var worker: Dictionary = workers[selected_worker_index]
-	worker["assigned"] = cell
-	worker["target"] = Vector2(cell.x, cell.y)
-	worker["work_timer"] = 0.5
+	worker = _begin_worker_assignment(worker, cell)
 	workers[selected_worker_index] = worker
 	status_text = _worker_name(selected_worker_index) + " assigned. " + _worker_assignment_hint(cell)
 	_add_popup_for_cell(cell, "Assigned", Color("#f2d16b"))
@@ -1177,7 +1175,10 @@ func _spawn_worker(cell: Vector2i, paid: bool) -> void:
 		"pos": Vector2(cell.x, cell.y),
 		"target": Vector2(cell.x, cell.y),
 		"assigned": cell,
-		"work_timer": randf_range(0.5, WORKER_FISH_SECONDS),
+		"fishing_cell": Vector2i(-1, -1),
+		"job_state": "idle",
+		"carry_stock": [0, 0, 0],
+		"work_timer": 0.0,
 		"paid": paid
 	})
 
@@ -1203,28 +1204,126 @@ func _tick_worker_job(worker_index: int, worker: Dictionary, delta: float) -> Di
 	if tile["kind"] != TileKind.WATER:
 		return worker
 
-	worker["work_timer"] = float(worker["work_timer"]) - delta
-	if float(worker["work_timer"]) > 0.0:
-		return worker
-	worker["work_timer"] = WORKER_FISH_SECONDS
+	return _tick_fishing_worker(worker_index, worker, delta)
 
-	if tile["fish"] <= 0:
+
+func _begin_worker_assignment(worker: Dictionary, cell: Vector2i) -> Dictionary:
+	worker["assigned"] = cell
+	if _worker_carry_total(worker) > 0:
+		worker["job_state"] = "carry_to_pool"
+		worker["target"] = _worker_pool_target(worker)
 		return worker
+
+	if tiles[cell.y][cell.x]["kind"] != TileKind.WATER:
+		worker["fishing_cell"] = Vector2i(-1, -1)
+		worker["job_state"] = "walk_to_assignment"
+		worker["target"] = Vector2(cell.x, cell.y)
+		return worker
+
+	worker["fishing_cell"] = cell
+	worker["job_state"] = "walk_to_water"
+	worker["work_timer"] = 0.0
+	worker["target"] = _worker_shore_target(cell)
+	return worker
+
+
+func _tick_fishing_worker(worker_index: int, worker: Dictionary, delta: float) -> Dictionary:
+	var state := str(worker["job_state"])
+	if state == "walk_to_water":
+		worker["job_state"] = "fishing"
+		worker["work_timer"] = WORKER_FISH_SECONDS
+		status_text = _worker_name(worker_index) + " is casting from the dock."
+		return worker
+
+	if state == "fishing":
+		worker["work_timer"] = float(worker["work_timer"]) - delta
+		if float(worker["work_timer"]) > 0.0:
+			return worker
+		return _worker_catch_fish(worker_index, worker)
+
+	if state == "waiting_for_pool" and _worker_carry_total(worker) <= 0:
+		if _pool_capacity() - _live_fish_total() <= 0:
+			return worker
+		return _begin_worker_assignment(worker, worker["assigned"])
+
+	if state == "carry_to_pool" or state == "waiting_for_pool":
+		return _worker_unload_fish(worker_index, worker)
+
+	return _begin_worker_assignment(worker, worker["assigned"])
+
+
+func _worker_catch_fish(worker_index: int, worker: Dictionary) -> Dictionary:
+	var fishing_cell: Vector2i = worker["fishing_cell"]
+	if fishing_cell.x < 0:
+		return _begin_worker_assignment(worker, worker["assigned"])
+	var tile: Dictionary = tiles[fishing_cell.y][fishing_cell.x]
+	if int(tile["fish"]) <= 0:
+		worker["work_timer"] = 1.0
+		return worker
+	if _pool_capacity() - _live_fish_total() <= 0:
+		worker["job_state"] = "waiting_for_pool"
+		worker["target"] = _worker_pool_target(worker)
+		return worker
+
+	var fish_kind := int(tile["fish_kind"])
+	tile["fish"] = int(tile["fish"]) - 1
+	tiles[fishing_cell.y][fishing_cell.x] = tile
+	_add_fish_to_stock(worker["carry_stock"], fish_kind, 1)
+	fish_caught_total += 1
+	_add_fish_to_stock(fish_caught_by_kind, fish_kind, 1)
+	var active_fish_index := _active_fish_index_in_cell(fishing_cell)
+	if active_fish_index >= 0:
+		active_fish_agents.remove_at(active_fish_index)
+	worker["job_state"] = "carry_to_pool"
+	worker["target"] = _worker_pool_target(worker)
+	status_text = _worker_name(worker_index) + " caught a " + _fish_name(fish_kind) + " and is carrying it to the pool." + _maybe_unlock_storage(fish_kind)
+	_add_popup_for_cell(fishing_cell, _worker_name(worker_index) + " caught", _fish_color(fish_kind))
+	return worker
+
+
+func _worker_unload_fish(worker_index: int, worker: Dictionary) -> Dictionary:
+	if _worker_carry_total(worker) <= 0:
+		return _begin_worker_assignment(worker, worker["assigned"])
 	var room := _pool_capacity() - _live_fish_total()
 	if room <= 0:
+		worker["job_state"] = "waiting_for_pool"
 		return worker
+	var moved := _move_fish_between_stocks(worker["carry_stock"], live_fish_stock, room)
+	if moved <= 0:
+		return worker
+	fish_stored_total += moved
+	var pool_cell := _nearest_pool_cell(worker["pos"])
+	status_text = _worker_name(worker_index) + " unloaded " + str(moved) + " fish at the pool and is heading back out."
+	if pool_cell.x >= 0:
+		_add_popup_for_cell(pool_cell, "Pool +" + str(moved), Color("#9fe4dd"))
+	return _begin_worker_assignment(worker, worker["assigned"])
 
-	var caught: int = min(1, int(tile["fish"]), room)
-	var fish_kind := int(tile["fish_kind"])
-	tile["fish"] = int(tile["fish"]) - caught
-	tiles[assigned.y][assigned.x] = tile
-	_add_fish_to_stock(live_fish_stock, fish_kind, caught)
-	fish_caught_total += caught
-	fish_stored_total += caught
-	_add_fish_to_stock(fish_caught_by_kind, fish_kind, caught)
-	status_text = _worker_name(worker_index) + " carried " + _fish_name(fish_kind) + " straight to the pools." + _maybe_unlock_storage(fish_kind)
-	_add_popup_for_cell(assigned, _worker_name(worker_index) + " +" + str(caught), _fish_color(fish_kind))
-	return worker
+
+func _worker_carry_total(worker: Dictionary) -> int:
+	return _stock_total(worker["carry_stock"])
+
+
+func _worker_shore_target(water_cell: Vector2i) -> Vector2:
+	var dock_cell := Vector2i(clamp(water_cell.x, 3, 10), WATER_ROWS)
+	return Vector2(dock_cell.x, dock_cell.y)
+
+
+func _worker_pool_target(worker: Dictionary) -> Vector2:
+	var pool_cell := _nearest_pool_cell(worker["pos"])
+	if pool_cell.x < 0:
+		return Vector2(worker["pos"])
+	return Vector2(pool_cell.x, pool_cell.y)
+
+
+func _nearest_pool_cell(origin: Vector2) -> Vector2i:
+	var closest := Vector2i(-1, -1)
+	var closest_distance := INF
+	for pool_cell in _building_cells(BuildKind.POOL):
+		var distance: float = origin.distance_to(Vector2(pool_cell.x, pool_cell.y))
+		if distance < closest_distance:
+			closest_distance = distance
+			closest = pool_cell
+	return closest
 
 
 func _tick_fish_spawns(delta: float) -> void:
@@ -2331,13 +2430,17 @@ func _buyer_index_at_cell(cell: Vector2i) -> int:
 
 func _is_valid_worker_assignment(cell: Vector2i) -> bool:
 	var tile: Dictionary = tiles[cell.y][cell.x]
-	return tile["kind"] != TileKind.EXPANSION
+	if tile["kind"] == TileKind.EXPANSION:
+		return false
+	if tile["kind"] == TileKind.WATER:
+		return cell.y == WATER_ROWS - 1
+	return true
 
 
 func _worker_assignment_hint(cell: Vector2i) -> String:
 	var tile: Dictionary = tiles[cell.y][cell.x]
 	if tile["kind"] == TileKind.WATER:
-		return "They will catch fish and carry them directly to pools."
+		return "They will cast from the nearest dock, carry each catch to a pool, then repeat."
 	if tile["kind"] == TileKind.ROAD:
 		return "They will stand by on the road until you assign a job."
 	if tile["building"] == BuildKind.NONE and tile["kind"] == TileKind.DOCK:
@@ -3030,6 +3133,7 @@ func _draw_people() -> void:
 		var worker_screen := _agent_screen_pos(worker_pos)
 		if grid_rect.grow(tile_px * 0.6).has_point(worker_screen):
 			_draw_person(worker_screen, Color("#f2d16b"), i == selected_worker_index, "W")
+			_draw_worker_carry(worker_screen, worker)
 
 	var player_screen := _agent_screen_pos(player_agent.position)
 	if grid_rect.grow(tile_px * 0.6).has_point(player_screen):
@@ -3167,6 +3271,13 @@ func _draw_player_carry(center: Vector2) -> void:
 	_draw_want_bubble(center, " ".join(parts), Color("#e87d52"))
 
 
+func _draw_worker_carry(center: Vector2, worker: Dictionary) -> void:
+	var carried := _worker_carry_total(worker)
+	if carried <= 0:
+		return
+	_draw_want_bubble(center, "F" + str(carried), Color("#f2d16b"))
+
+
 func _draw_land_tile(rect: Rect2, building: int) -> void:
 	match building:
 		BuildKind.NONE:
@@ -3285,12 +3396,7 @@ func _selected_tile_text() -> String:
 	if worker_index >= 0:
 		var worker: Dictionary = workers[worker_index]
 		var assigned: Vector2i = worker["assigned"]
-		var assignment := "standing by"
-		if assigned != selected_cell:
-			assignment = "walking to " + str(assigned)
-		else:
-			assignment = _worker_assignment_hint(assigned)
-		return "Person: " + _worker_name(worker_index) + ". " + assignment
+		return "Person: " + _worker_name(worker_index) + ". " + _worker_state_text(worker, assigned)
 
 	var buyer_index := _buyer_index_at_cell(selected_cell)
 	if buyer_index >= 0:
@@ -3332,6 +3438,23 @@ func _selected_tile_text() -> String:
 			if _is_smoker_unlocked():
 				options += ", smoker"
 			return "Tile: open " + _tile_surface_name(int(tile["kind"])) + ". Build " + options + " here."
+
+
+func _worker_state_text(worker: Dictionary, assigned: Vector2i) -> String:
+	var state := str(worker["job_state"])
+	if state == "walk_to_water":
+		return "Walking to the dock to fish at " + str(assigned) + "."
+	if state == "fishing":
+		return "Fishing from the dock at " + str(assigned) + "."
+	if state == "carry_to_pool":
+		return "Carrying " + str(_worker_carry_total(worker)) + " fish to the pool."
+	if state == "waiting_for_pool":
+		return "Holding fish until there is pool space."
+	if state == "walk_to_assignment":
+		return "Walking to their assigned station at " + str(assigned) + "."
+	if assigned.x >= 0 and assigned.y >= 0:
+		return _worker_assignment_hint(assigned)
+	return "Standing by."
 
 
 func _building_label(building: int) -> String:

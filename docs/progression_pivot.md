@@ -65,6 +65,7 @@ Implemented in Phase 4.7:
 - manual cutter and hand sale loop
 - no starter worker
 - workers act as automation switches when later hired
+- a hired fisher walks a visible dock-to-water-to-pool route and carries each catch
 - Net 2 unlocks the boat rather than showing it from the first second
 
-Next implementation focus: physical worker routes, world-visible upgrade states, and named area unlocks.
+Next implementation focus: world-visible upgrade states and named area unlocks.
