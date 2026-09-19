@@ -30,6 +30,7 @@ The current prototype is intentionally small:
 - unaffordable build and upgrade buttons are tinted, and upgrade buttons show current prices
 - water now has visible swimming minnows, carp, and later silverfish
 - shallow, open, cold, deep, and monster water affect fish mix and movement
+- cold, deep, and monster routes give one-time discovery bonuses; monster water shows a warning meter
 - minnows wiggle, carp cruise, and silverfish dart away from the boat
 - fish species use different colors and produce different meat yields
 - Net level 2 unlocks silverfish and increases the visible boat net capacity/size

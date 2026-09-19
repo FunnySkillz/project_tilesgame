@@ -186,7 +186,7 @@ Next:
 
 ## Phase 4.5: Active Fishing
 
-Status: fishing-zone slice complete.
+Status: zone reward and warning bridge complete.
 
 Goal: make catching fish as satisfying and readable as processing and selling them.
 
@@ -205,6 +205,7 @@ Needs:
 - [x] boat upgrades beyond net level
 - [x] split more fishing code out of `main.gd`
 - [x] fishing zones such as shallow, cold, deep, and monster water
+- [x] zone-specific rewards and warnings before danger
 
 Implemented:
 
@@ -224,12 +225,15 @@ Implemented:
 - zones use distinct procedural placeholder visuals inspired by the generated water reference sheet
 - zones affect active fish spawn position, fish species mix, and fish movement speed pressure
 - water inspector text explains each zone's current gameplay meaning
+- cold, deep, and monster routes now pay one-time first-catch exploration bonuses
+- monster water now builds a visible warning meter near the boat without damaging the player yet
 - catch and store goals work through active fishing because net catches count as caught fish and dock unloading counts as stored fish
 
 Next:
 
 - tune fishing-zone layout, fish mix, and spawn weights after playtesting
-- add zone-specific rewards and warnings before Phase 5 danger
+- start Phase 5 with a visible cold meter or cold-wave timer
+- connect monster-water warning to the first real monster/counterplay loop later
 - keep graphics procedural until net shape, boat scale, and fish readability feel good
 
 ## Phase 5: Danger

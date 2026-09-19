@@ -281,12 +281,14 @@ Current direction:
 - boat upgrades improve speed and net hold capacity, with small visual details on the boat
 - water is split into shallow, open, cold, deep, and monster zones
 - water zones affect fish mix, spawn location, and movement pressure
+- cold, deep, and monster water pay first-catch route bonuses
+- monster water builds a visible warning before real danger systems exist
 
 Later active-fishing depth:
 
 - smoother steering and possible drawn path feedback
 - deeper species behavior such as minnow schools, lure/bait reactions, and predator avoidance
-- zone-specific hazards, rewards, warnings, and monster pressure
+- real zone hazards, counterplay, and monster pressure
 - boat upgrades for lights, net strength, storage, sonar, and armor
 
 ### Buyers And Selling

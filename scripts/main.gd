@@ -46,6 +46,8 @@ const WORKER_SMOKER_RATE_BONUS := 0.35
 const ACTIVE_FISH_MAX := 18
 const BOAT_DOCK_X := 2.5
 const NET_CATCH_RADIUS := 0.34
+const MONSTER_WARNING_SECONDS := 6.0
+const MONSTER_WARNING_DECAY := 1.15
 const SMOKER_SECONDS := 6.0
 const MEAT_PRICE := 6
 const SMOKED_MEAT_PRICE := 14
@@ -104,6 +106,10 @@ var selected_worker_index := -1
 var active_fish_agents: Array = []
 var boat_agent = BoatAgentScript.new()
 var dragging_boat := false
+var water_zone_catches: Array = [0, 0, 0, 0, 0]
+var water_zone_discovered: Array = [false, false, false, false, false]
+var monster_warning := 0.0
+var monster_warning_notice_timer := 0.0
 
 var grid_rect := Rect2()
 var tile_px := 48.0
@@ -317,11 +323,11 @@ func _water_zone_hint(water_zone: int) -> String:
 		WaterZone.OPEN:
 			return "Balanced early catches."
 		WaterZone.COLD:
-			return "Fish move slower; silverfish like the chill."
+			return "Fish move slower; first cold catch pays a route bonus."
 		WaterZone.DEEP:
-			return "Better fish move faster here."
+			return "Better fish move faster; first deep catch pays a route bonus."
 		WaterZone.MONSTER:
-			return "Best early fish mix, but danger will live here later."
+			return "Rich early mix; warning builds here before real danger arrives."
 		_:
 			return ""
 
@@ -354,6 +360,29 @@ func _water_zone_speed_modifier(water_zone: int) -> float:
 			return 1.28
 		_:
 			return 1.0
+
+
+func _water_zone_discovery_reward(water_zone: int) -> int:
+	match water_zone:
+		WaterZone.COLD:
+			return 4
+		WaterZone.DEEP:
+			return 6
+		WaterZone.MONSTER:
+			return 10
+		_:
+			return 0
+
+
+func _water_zone_warning_label() -> String:
+	if monster_warning <= 0.01:
+		return ""
+	var ratio: float = clamp(monster_warning / MONSTER_WARNING_SECONDS, 0.0, 1.0)
+	if ratio >= 0.85:
+		return " Monster water warning high."
+	if ratio >= 0.45:
+		return " Monster water warning rising."
+	return " Monster water feels uneasy."
 
 
 func _init_active_fishing() -> void:
@@ -951,6 +980,7 @@ func _tick_fish_spawns(delta: float) -> void:
 
 func _tick_active_fishing(delta: float) -> void:
 	_move_boat(delta)
+	_tick_zone_warnings(delta)
 
 	var water_min := Vector2(0.15, 0.15)
 	var water_max := Vector2(float(GRID_W) - 0.15, float(WATER_ROWS) - 0.2)
@@ -970,6 +1000,20 @@ func _move_boat(delta: float) -> void:
 	boat_agent.tick(delta)
 
 
+func _tick_zone_warnings(delta: float) -> void:
+	monster_warning_notice_timer = max(0.0, monster_warning_notice_timer - delta)
+	var boat_zone := _water_zone_at_world_position(boat_agent.position)
+	if boat_zone == WaterZone.MONSTER:
+		monster_warning = min(MONSTER_WARNING_SECONDS, monster_warning + delta)
+		if monster_warning >= MONSTER_WARNING_SECONDS and monster_warning_notice_timer <= 0.0:
+			status_text = "Monster water warning is high. No attack yet, but return before pushing deeper."
+			_add_popup("Warning", _world_to_screen(boat_agent.position), Color("#ff8f7a"))
+			monster_warning_notice_timer = 7.0
+		return
+
+	monster_warning = max(0.0, monster_warning - delta * MONSTER_WARNING_DECAY)
+
+
 func _collect_fish_in_net() -> void:
 	if _boat_net_count() >= _boat_net_capacity():
 		return
@@ -984,12 +1028,28 @@ func _collect_fish_in_net() -> void:
 		if fish.position.distance_to(net_center) > catch_radius + NET_CATCH_RADIUS:
 			continue
 
+		var catch_zone := _water_zone_at_world_position(fish.position)
 		active_fish_agents.remove_at(i)
 		_add_fish_to_stock(boat_agent.fish_stock, fish.fish_kind, 1)
+		water_zone_catches[catch_zone] = int(water_zone_catches[catch_zone]) + 1
 		fish_caught_total += 1
 		_add_fish_to_stock(fish_caught_by_kind, fish.fish_kind, 1)
-		status_text = "Net caught a " + _fish_name(fish.fish_kind) + ". Net " + str(_boat_net_count()) + "/" + str(_boat_net_capacity()) + "." + _maybe_unlock_storage(fish.fish_kind)
+		status_text = "Net caught a " + _fish_name(fish.fish_kind) + " from " + _water_zone_name(catch_zone) + ". Net " + str(_boat_net_count()) + "/" + str(_boat_net_capacity()) + "." + _maybe_award_zone_discovery(catch_zone) + _maybe_unlock_storage(fish.fish_kind)
 		_add_popup(_fish_name(fish.fish_kind), _world_to_screen(net_center), _fish_color(fish.fish_kind))
+
+
+func _maybe_award_zone_discovery(water_zone: int) -> String:
+	if bool(water_zone_discovered[water_zone]):
+		return ""
+
+	water_zone_discovered[water_zone] = true
+	var reward := _water_zone_discovery_reward(water_zone)
+	if reward <= 0:
+		return ""
+
+	money += reward
+	_add_popup(_water_zone_short_name(water_zone) + " +$" + str(reward), _world_to_screen(boat_agent.position), Color("#b7ef8a"))
+	return " " + _water_zone_short_name(water_zone) + " route bonus +$" + str(reward) + "."
 
 
 func _try_unload_boat() -> void:
@@ -2678,6 +2738,7 @@ func _draw_active_fishing() -> void:
 			caught_index += 1
 
 	_draw_boat(boat_screen)
+	_draw_monster_warning_meter(boat_screen)
 	var font := get_theme_default_font()
 	draw_string(font, net_screen + Vector2(-36, -net_radius - 5), "NET " + str(_boat_net_count()) + "/" + str(_boat_net_capacity()), HORIZONTAL_ALIGNMENT_CENTER, 72.0, 12, Color("#f5efe1"))
 
@@ -2698,6 +2759,20 @@ func _draw_boat(center: Vector2) -> void:
 		draw_line(center - right * tile_px * 0.13, center + right * tile_px * 0.13, Color("#9fe4dd"), 2.0)
 	if boat_agent.level >= 3:
 		draw_circle(center - direction * tile_px * 0.11, tile_px * 0.045, Color("#f2d16b"))
+
+
+func _draw_monster_warning_meter(boat_screen: Vector2) -> void:
+	if monster_warning <= 0.01:
+		return
+
+	var ratio: float = clamp(monster_warning / MONSTER_WARNING_SECONDS, 0.0, 1.0)
+	var meter_size := Vector2(tile_px * 0.64, 5.0)
+	var meter := Rect2(boat_screen + Vector2(-meter_size.x * 0.5, -tile_px * 0.56), meter_size)
+	draw_rect(meter, Color("#2c1721"))
+	draw_rect(Rect2(meter.position, Vector2(meter.size.x * ratio, meter.size.y)), Color("#ff8f7a"))
+	draw_rect(meter, Color("#f5efe1"), false, 1.0)
+	if ratio >= 0.75:
+		draw_string(get_theme_default_font(), meter.position + Vector2(0, -3), "WARN", HORIZONTAL_ALIGNMENT_CENTER, meter.size.x, 10, Color("#ffb36b"))
 
 
 func _draw_dock_order_board() -> void:
@@ -2812,7 +2887,7 @@ func _draw_footer_hint() -> void:
 	var hint := ""
 	match selected_tool:
 		TOOL_CATCH:
-			hint = "Catch: drag on water to steer the boat, tap dock to unload the net."
+			hint = "Catch: drag on water to steer the boat, tap dock to unload the net." + _water_zone_warning_label()
 		TOOL_PEOPLE:
 			if selected_worker_index >= 0 and selected_worker_index < workers.size():
 				hint = "People: " + _worker_name(selected_worker_index) + " selected. Tap water, a building, or land."
