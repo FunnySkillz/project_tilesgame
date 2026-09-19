@@ -122,16 +122,24 @@ The style should be readable, cozy-gritty, and slightly strange:
 
 Avoid tiny detail. Every asset must read at phone size.
 
-## Current Decision
+## First Runtime Art Pack
 
-Do not generate final textures yet.
+Status: implemented as a focused visual upgrade, not a final atlas.
 
-Phase 2 layout mechanics are readable enough to support a first texture pass, and Phase 3 now has fish species, Storage, land expansion, and the Smoker branch. Phase 4 added workers, visible buyers, and dock orders. Phase 4.5 now has active boat fishing, so the first cohesive pack should include the boat, net, fish readability, workers, buyers, and market-life props instead of only tiles and machines.
+The generated images in `assets/pics/` are valuable art-direction boards. They establish the cold-blue water, warm timber, orange fishing gear, snowy dock pieces, character silhouettes, fish, and market style. They are not suitable for direct runtime use because each sheet contains labels, opaque presentation backgrounds, multiple scales, and several unrelated assets.
 
-The boat upgrade path currently uses procedural details only. Keep it that way until fishing zones prove what boat silhouettes and net states must communicate at phone size.
+The first runtime sprites were generated from that direction, cleaned to transparent PNGs, resized to 384px sources, and placed in `assets/runtime_art/`:
 
-The generated images in `assets/pics/` are useful as style and asset-direction references. Treat them as concept boards for palette, fish silhouettes, boat/net states, water-zone treatments, dock pieces, people, and props. Do not use the full images directly in-game because they include labels, backgrounds, mixed scales, and multiple assets per sheet. The production version should be transparent PNG sprites or atlases made from this direction.
+- `fisherman.png` for the player and hired workers
+- `villager.png` for visible buyers
+- `live_pool.png` for pool buildings
+- `cutter.png` for manual and staffed processing stations
+- `market.png` for selling stalls
+
+`scripts/main.gd` now draws these assets over the same entity and building positions that previously used procedural placeholders. Selection rings, carry bubbles, buyer wants, progress bars, rules, and touch controls remain code-drawn so the art does not obscure gameplay state.
+
+The boat upgrade path, water zones, fish, storage, smoker, dock order board, and frontier remain procedural for now. They need distinct runtime sprites once their gameplay presentation and scale are proven in regular playtests.
 
 Next art milestone:
 
-Generate a small prototype texture pack after active fishing zones and boat upgrade silhouettes are stable. The first pack should cover water, land, dock, plaza, road, expansion ground, pool, cutter, market, storage, smoker, dock order board, boat, net, worker, buyer, minnow, carp, silverfish, meat, smoked meat, money, crates, lamps, and market props.
+Generate the active-fishing readability pack: the player boat, three net states, minnow/carp/silverfish sprites, wake and splash effects, then dock lamps, crates, and order-board props. After that, produce a tile atlas for water, dock, plaza, road, land, and frontier rather than separate full-scene concept images.

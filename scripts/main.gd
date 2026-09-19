@@ -10,6 +10,11 @@ enum BuyerKind { VILLAGER, COOK, MERCHANT }
 const BoatAgentScript := preload("res://scripts/fishing/BoatAgent.gd")
 const FishAgentScript := preload("res://scripts/fishing/FishAgent.gd")
 const PlayerAgentScript := preload("res://scripts/people/PlayerAgent.gd")
+const FISHERMAN_TEXTURE := preload("res://assets/runtime_art/fisherman.png")
+const VILLAGER_TEXTURE := preload("res://assets/runtime_art/villager.png")
+const LIVE_POOL_TEXTURE := preload("res://assets/runtime_art/live_pool.png")
+const CUTTER_TEXTURE := preload("res://assets/runtime_art/cutter.png")
+const MARKET_TEXTURE := preload("res://assets/runtime_art/market.png")
 
 const GRID_W := 16
 const GRID_H := 18
@@ -3238,17 +3243,14 @@ func _world_to_screen(pos: Vector2) -> Vector2:
 
 
 func _draw_person(center: Vector2, body_color: Color, selected: bool, label: String) -> void:
-	var head_radius: float = max(3.0, tile_px * 0.075)
-	var body_size := Vector2(tile_px * 0.16, tile_px * 0.18)
+	var sprite_size := Vector2(tile_px * 0.78, tile_px * 0.88)
+	var sprite_rect := Rect2(center - Vector2(sprite_size.x * 0.5, sprite_size.y * 0.68), sprite_size)
 	if selected:
 		draw_circle(center, tile_px * 0.22, Color("#f2d16b"))
 		draw_circle(center, tile_px * 0.18, Color("#17212b"))
-	draw_circle(center + Vector2(0, -tile_px * 0.12), head_radius, Color("#f5efe1"))
-	draw_rect(Rect2(center - body_size * 0.5 + Vector2(0, tile_px * 0.03), body_size), body_color)
-	draw_line(center + Vector2(-body_size.x * 0.55, tile_px * 0.02), center + Vector2(-body_size.x, tile_px * 0.12), body_color, 2.0)
-	draw_line(center + Vector2(body_size.x * 0.55, tile_px * 0.02), center + Vector2(body_size.x, tile_px * 0.12), body_color, 2.0)
-	if label != "":
-		draw_string(get_theme_default_font(), center + Vector2(-tile_px * 0.12, tile_px * 0.28), label, HORIZONTAL_ALIGNMENT_CENTER, tile_px * 0.24, 11, Color("#17212b"))
+	draw_circle(center + Vector2(0, tile_px * 0.19), tile_px * 0.16, body_color.darkened(0.35))
+	var texture: Texture2D = FISHERMAN_TEXTURE if label == "YOU" or label == "W" else VILLAGER_TEXTURE
+	draw_texture_rect(texture, sprite_rect, false)
 
 
 func _draw_want_bubble(center: Vector2, label: String, color: Color) -> void:
@@ -3284,24 +3286,16 @@ func _draw_land_tile(rect: Rect2, building: int) -> void:
 			draw_circle(rect.get_center() + Vector2(-8, -4), 3.0, Color("#76805a"))
 			draw_circle(rect.get_center() + Vector2(10, 8), 2.5, Color("#788252"))
 		BuildKind.POOL:
-			var pool_rect := rect.grow(-tile_px * 0.18)
-			draw_rect(pool_rect, Color("#1c90a3"))
-			draw_rect(pool_rect, Color("#b6fff2"), false, 2.0)
-			draw_circle(pool_rect.get_center() + Vector2(-8, -4), 4.0, Color("#b6fff2"))
-			draw_circle(pool_rect.get_center() + Vector2(8, 5), 3.0, Color("#d2fff7"))
+			_draw_building_art(rect, LIVE_POOL_TEXTURE)
 		BuildKind.CUTTER:
-			var body := rect.grow(-tile_px * 0.17)
-			draw_rect(body, Color("#773d44"))
-			draw_rect(body, Color("#ffd7bb"), false, 2.0)
-			draw_line(body.position + Vector2(8, body.size.y - 8), body.end - Vector2(8, body.size.y - 8), Color("#f4f0e5"), 5.0)
+			_draw_building_art(rect, CUTTER_TEXTURE)
 			if _building_count(BuildKind.CUTTER) > 0:
-				var bar_width: float = body.size.x * clamp(cutter_progress / _cutter_required_time(), 0.0, 1.0)
-				draw_rect(Rect2(body.position + Vector2(0, body.size.y - 5), Vector2(bar_width, 5)), Color("#f2d16b"))
+				var bar_rect := Rect2(rect.position + Vector2(tile_px * 0.12, rect.size.y - tile_px * 0.16), Vector2(tile_px * 0.76, 4.0))
+				var bar_width: float = bar_rect.size.x * clamp(cutter_progress / _cutter_required_time(), 0.0, 1.0)
+				draw_rect(bar_rect, Color("#17212b"))
+				draw_rect(Rect2(bar_rect.position, Vector2(bar_width, bar_rect.size.y)), Color("#f2d16b"))
 		BuildKind.MARKET:
-			var stall := rect.grow(-tile_px * 0.16)
-			draw_rect(stall, Color("#6c4a9b"))
-			draw_rect(Rect2(stall.position, Vector2(stall.size.x, stall.size.y * 0.32)), Color("#f2d16b"))
-			draw_line(stall.position + Vector2(0, stall.size.y * 0.32), stall.position + Vector2(stall.size.x, stall.size.y * 0.32), Color("#1b1720"), 2.0)
+			_draw_building_art(rect, MARKET_TEXTURE)
 		BuildKind.STORAGE:
 			var crate := rect.grow(-tile_px * 0.18)
 			draw_rect(crate, Color("#8a6f43"))
@@ -3317,6 +3311,11 @@ func _draw_land_tile(rect: Rect2, building: int) -> void:
 			draw_circle(smoker.position + Vector2(smoker.size.x * 0.78, -7), 2.0, Color("#dbe2e6"))
 			var smoke_bar_width: float = smoker.size.x * clamp(smoker_progress / _smoker_required_time(), 0.0, 1.0)
 			draw_rect(Rect2(smoker.position + Vector2(0, smoker.size.y - 5), Vector2(smoke_bar_width, 5)), Color("#e8a35c"))
+
+
+func _draw_building_art(rect: Rect2, texture: Texture2D) -> void:
+	var art_rect := rect.grow(-tile_px * 0.035)
+	draw_texture_rect(texture, art_rect, false)
 
 
 func _draw_fish(center: Vector2, scale: float, fish_kind: int) -> void:

@@ -189,7 +189,7 @@ Implemented:
 Next:
 
 - add more expressive worker/buyer animation states
-- add richer stall presentation around markets and the order board
+- add richer order-board, lamp, crate, and path presentation around the runtime market art
 - consider a first texture pass for dock/plaza readability
 
 ## Phase 4.5: Active Fishing
@@ -242,7 +242,7 @@ Next:
 - tune fishing-zone layout, fish mix, and spawn weights after playtesting
 - start Phase 5 with a visible cold meter or cold-wave timer
 - connect monster-water warning to the first real monster/counterplay loop later
-- keep graphics procedural until net shape, boat scale, and fish readability feel good
+- keep boat, net, fish, and water-zone graphics procedural until their active-fishing silhouettes are ready for the next runtime art pack
 
 ## Phase 4.6: Larger World And Territorial Expansion
 
@@ -309,11 +309,12 @@ Implemented:
 - early prices now support the intended rhythm: $12 hand sales and a $50 first net upgrade
 - water workers now walk to the dock, fish, visibly carry their catch, walk to the nearest pool, unload, and return to the water
 - worker state text and carry bubbles show fishing, delivery, and blocked-pool states
+- first runtime art pack now replaces procedural people, pool, cutter, and market placeholders with transparent generated sprites directed by the supplied visual boards; selection, wants, carry state, and progress remain readable code-drawn overlays
 
 Next:
 
 - refine player movement into path-aware movement around buildings and visible interaction ranges
-- make the cutter, pool, market, and net upgrades visually change in the world
+- add level-specific visual variants for the pool, cutter, market, net, and boat upgrades
 - replace individual frontier purchases with named area-unlock gates and visible reveal moments
 - delay Phase 5 danger until these manual and automation handoffs feel good in playtesting
 
