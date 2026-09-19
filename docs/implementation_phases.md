@@ -137,7 +137,7 @@ Implemented:
 
 ## Phase 4: Living Base And Demand
 
-Status: fourth playable slice complete.
+Status: fourth playable slice and first crew-progression pass complete.
 
 Goal: make the fishery feel like a busy, interactive place instead of only a resource board.
 
@@ -148,6 +148,8 @@ Needs:
 - [x] People tool for selecting and assigning workers
 - [x] hire-worker command and crew cap
 - [x] worker jobs that affect production
+- [x] visible worker job state and skill feedback
+- [x] job-specific worker stats and training
 - [x] richer buyer types and preferences
 - [x] visible buyer wants
 - [x] trade stalls or order board
@@ -161,10 +163,16 @@ Implemented:
 - more markets and staffed markets increase buyer flow
 - one starter worker appeared on the board in the original living-base prototype; Phase 4.7 removes it so automation is earned
 - workers can be hired up to the current crew cap
-- People tool lets the player select a worker and assign them to water, land, or buildings
+- People tool lets the player select a worker and assign them to water or a staffed work station; open ground is a deliberate standby position
 - water workers catch fish and carry them directly to pools
 - pool workers add live-fish capacity
 - cutter, market, and smoker workers boost production or sales capacity
+- each named worker begins with a small aptitude, making fishing, handling, processing, and trade assignments meaningfully different
+- People now presents water, pool, cutter, market, storage, and smoker as explicit work targets; open ground is clearly shown as standby instead of looking like an assigned job
+- staffed stations transition workers into a visible working state with job badges and activity feedback
+- the selected worker shows their current job, skill level, experience, and exact live bonus in the inspector
+- workers earn experience from real catches, cutter work, smoking, and sales; the Train command can immediately improve the selected worker's active job skill up to level 3
+- handling staff improve pool and storage capacity, processing staff improve cutter and smoker speed, trade staff add market capacity and buyer pull, and fishing staff reduce their catch cycle
 - HUD, tile inspector, footer hints, and placeholders now support the people layer
 - villagers, cooks, and merchants now appear as distinct buyer types
 - buyer want bubbles show M for meat, S for smoked meat, and x3-style bulk demand
@@ -188,13 +196,14 @@ Implemented:
 
 Next:
 
+- add physical pool-to-cutter and market-service routes so station workers visibly move goods and meet customers
 - add more expressive worker/buyer animation states
-- add richer order-board, lamp, crate, and path presentation around the runtime market art
-- consider a first texture pass for dock/plaza readability
+- add crates, fish racks, and staffed-market dressing around the runtime market art
+- add upgrade-aware visual variants for the working buildings
 
 ## Phase 4.5: Active Fishing
 
-Status: zone reward and warning bridge complete.
+Status: runtime-art, zone-reward, and warning bridge complete.
 
 Goal: make catching fish as satisfying and readable as processing and selling them.
 
@@ -236,13 +245,18 @@ Implemented:
 - cold, deep, and monster routes now pay one-time first-catch exploration bonuses
 - monster water now builds a visible warning meter near the boat without damaging the player yet
 - catch and store goals work through active fishing because net catches count as caught fish and dock unloading counts as stored fish
+- generated and integrated a direction-aware runtime boat sprite with real boat movement, a tow line, wake, and visible upgrade indicators
+- generated and integrated distinct minnow, carp, and silverfish sprites; each rotates from the live fish-agent velocity
+- upgraded the procedural net with capacity-aware fill tint, buoy markers, and visible caught fish; its circle remains tied to real net radius instead of a fixed image size
+- generated and integrated a shared terrain pass for water, dock, plaza, road, land, and frontier; water-zone tints retain the shallow, cold, deep, and monster route readability
+- generated and integrated dock lamp and dock-order-board landmarks in their real map positions
 
 Next:
 
 - tune fishing-zone layout, fish mix, and spawn weights after playtesting
 - start Phase 5 with a visible cold meter or cold-wave timer
 - connect monster-water warning to the first real monster/counterplay loop later
-- keep boat, net, fish, and water-zone graphics procedural until their active-fishing silhouettes are ready for the next runtime art pack
+- add terrain variation and edge-transition art once map readability has been checked on a phone
 
 ## Phase 4.6: Larger World And Territorial Expansion
 
@@ -268,6 +282,7 @@ Implemented:
 - most land outside the starter district begins as locked frontier, leaving substantial space for the later industry, defenses, and truck systems
 - expansions must connect to owned land, dock, plaza, or road, so the base grows outward as a coherent territory
 - all existing boat, fish, worker, buyer, building, and order-board logic now uses world coordinates and follows the camera
+- the world now uses authored runtime textures for each terrain class, with lamps and the order board acting as visible dock landmarks
 
 Next:
 
@@ -313,7 +328,8 @@ Implemented:
 
 Next:
 
-- refine player movement into path-aware movement around buildings and visible interaction ranges
+- refine player and worker movement into path-aware movement around buildings and visible interaction ranges
+- add physical processing and market service routes for staffed workers
 - add level-specific visual variants for the pool, cutter, market, net, and boat upgrades
 - replace individual frontier purchases with named area-unlock gates and visible reveal moments
 - delay Phase 5 danger until these manual and automation handoffs feel good in playtesting

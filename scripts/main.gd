@@ -15,6 +15,18 @@ const VILLAGER_TEXTURE := preload("res://assets/runtime_art/villager.png")
 const LIVE_POOL_TEXTURE := preload("res://assets/runtime_art/live_pool.png")
 const CUTTER_TEXTURE := preload("res://assets/runtime_art/cutter.png")
 const MARKET_TEXTURE := preload("res://assets/runtime_art/market.png")
+const BOAT_TEXTURE := preload("res://assets/runtime_art/boat.png")
+const MINNOW_TEXTURE := preload("res://assets/runtime_art/minnow.png")
+const CARP_TEXTURE := preload("res://assets/runtime_art/carp.png")
+const SILVERFISH_TEXTURE := preload("res://assets/runtime_art/silverfish.png")
+const WATER_TILE_TEXTURE := preload("res://assets/runtime_art/tiles/water.png")
+const DOCK_TILE_TEXTURE := preload("res://assets/runtime_art/tiles/dock.png")
+const PLAZA_TILE_TEXTURE := preload("res://assets/runtime_art/tiles/plaza.png")
+const ROAD_TILE_TEXTURE := preload("res://assets/runtime_art/tiles/road.png")
+const LAND_TILE_TEXTURE := preload("res://assets/runtime_art/tiles/land.png")
+const FRONTIER_TILE_TEXTURE := preload("res://assets/runtime_art/tiles/frontier.png")
+const DOCK_LAMP_TEXTURE := preload("res://assets/runtime_art/dock_lamp.png")
+const DOCK_ORDER_BOARD_TEXTURE := preload("res://assets/runtime_art/dock_order_board.png")
 
 const GRID_W := 16
 const GRID_H := 18
@@ -42,7 +54,10 @@ const COST_STORAGE := 25
 const COST_SMOKER := 45
 const COST_EXPAND := 35
 const COST_WORKER := 150
+const COST_WORKER_TRAIN := 60
 const MAX_WORKERS := 6
+const WORKER_MAX_SKILL := 3
+const WORKER_SKILL_XP_BASE := 4
 
 const CUSTOMER_PATIENCE_SECONDS := 10.0
 const MARKET_SELL_SECONDS := 1.25
@@ -52,6 +67,7 @@ const WORKER_FISH_SECONDS := 4.5
 const WORKER_POOL_CAPACITY_BONUS := 2
 const WORKER_CUTTER_RATE_BONUS := 0.35
 const WORKER_SMOKER_RATE_BONUS := 0.35
+const WORKER_STORAGE_CAPACITY_BONUS := 4
 const ACTIVE_FISH_MAX := 18
 const BOAT_DOCK_X := 5.5
 const NET_CATCH_RADIUS := 0.34
@@ -572,7 +588,7 @@ func _build_ui() -> void:
 	_add_tool_button(actions, TOOL_WALK, "Walk", "Tap land, dock, plaza, or road to move the fisherman. Nearby stations work automatically.")
 	_add_tool_button(actions, TOOL_CATCH, "Fish", "Before the boat unlocks, stand at the dock and tap a nearby fish to catch it. Later, drag to steer the boat.")
 	_add_tool_button(actions, TOOL_MAP, "Map", "Select Map, then drag the board to pan across the larger fishery.")
-	_add_tool_button(actions, TOOL_PEOPLE, "People", "Select a worker, then tap water, a building, or land to assign them.")
+	_add_tool_button(actions, TOOL_PEOPLE, "People", "Select a worker, then tap water, a pool, cutter, market, storage, or smoker to assign their job.")
 	_add_tool_button(actions, TOOL_POOL, "Pool $10", "Build live fish capacity on a buildable tile.")
 	_add_tool_button(actions, TOOL_CUTTER, "Cutter $15", "Build processing on a buildable tile.")
 	_add_tool_button(actions, TOOL_MARKET, "Market $20", "Build selling on a buildable tile.")
@@ -586,6 +602,7 @@ func _build_ui() -> void:
 	command_buttons["pool"] = _add_command_button(actions, "Pool +", "Upgrade pools", _upgrade_pool)
 	command_buttons["cutter"] = _add_command_button(actions, "Cutter +", "Upgrade cutters", _upgrade_cutter)
 	command_buttons["hire"] = _add_command_button(actions, "Hire +", "Hire another worker", _hire_worker)
+	command_buttons["train"] = _add_command_button(actions, "Train", "Train the selected worker's assigned job skill", _train_selected_worker)
 	_add_command_button(actions, "Center", "Return the map view to the starter fishery", _center_map)
 	_add_command_button(actions, "Walk", "Return to walking the fisherman", _select_walk)
 
@@ -960,7 +977,8 @@ func _use_people_tool(cell: Vector2i) -> void:
 	var worker_index := _worker_index_at_cell(cell)
 	if worker_index >= 0:
 		selected_worker_index = worker_index
-		status_text = _worker_name(worker_index) + " selected. Tap water, a building, or land to assign work."
+		var selected_worker: Dictionary = workers[worker_index]
+		status_text = _worker_name(worker_index) + " selected. " + _worker_assignment_instruction(selected_worker)
 		return
 
 	if selected_worker_index < 0 or selected_worker_index >= workers.size():
@@ -973,7 +991,10 @@ func _use_people_tool(cell: Vector2i) -> void:
 	var worker: Dictionary = workers[selected_worker_index]
 	worker = _begin_worker_assignment(worker, cell)
 	workers[selected_worker_index] = worker
-	status_text = _worker_name(selected_worker_index) + " assigned. " + _worker_assignment_hint(cell)
+	if _worker_job_key(worker) == "idle":
+		status_text = _worker_name(selected_worker_index) + " is on standby. Tap water, a pool, cutter, market, storage, or smoker for a real job."
+	else:
+		status_text = _worker_name(selected_worker_index) + " assigned to " + _worker_job_label(_worker_job_key(worker)) + ". " + _worker_assignment_hint(cell)
 	_add_popup_for_cell(cell, "Assigned", Color("#f2d16b"))
 
 
@@ -1168,8 +1189,43 @@ func _hire_worker() -> void:
 	_spawn_worker(spawn_cell, true)
 	selected_tool = TOOL_PEOPLE
 	selected_worker_index = workers.size() - 1
-	status_text = _worker_name(selected_worker_index) + " hired. Tap a work tile to assign them."
+	status_text = _worker_name(selected_worker_index) + " hired. Select water, a pool, cutter, market, storage, or smoker to give them a job."
 	_add_popup_for_cell(spawn_cell, "Worker +1", Color("#f2d16b"))
+	_update_hud()
+
+
+func _train_selected_worker() -> void:
+	if selected_worker_index < 0 or selected_worker_index >= workers.size():
+		status_text = "Select a worker with People before training them."
+		return
+
+	var worker: Dictionary = workers[selected_worker_index]
+	var job_key := _worker_job_key(worker)
+	var skill_key := _worker_skill_key_for_job(job_key)
+	if skill_key.is_empty():
+		status_text = _worker_name(selected_worker_index) + " is on standby. Assign a real job before training."
+		return
+
+	var current_level := _worker_skill(worker, skill_key)
+	if current_level >= WORKER_MAX_SKILL:
+		status_text = _worker_name(selected_worker_index) + " has mastered " + _worker_skill_label(skill_key) + "."
+		return
+
+	var cost := _worker_training_cost(worker, skill_key)
+	if money < cost:
+		status_text = "Need $" + str(cost) + " to train " + _worker_name(selected_worker_index) + " in " + _worker_skill_label(skill_key) + "."
+		return
+
+	money -= cost
+	var skills: Dictionary = worker["skills"]
+	skills[skill_key] = current_level + 1
+	worker["skills"] = skills
+	var skill_xp: Dictionary = worker["skill_xp"]
+	skill_xp[skill_key] = 0
+	worker["skill_xp"] = skill_xp
+	workers[selected_worker_index] = worker
+	status_text = _worker_name(selected_worker_index) + " trained " + _worker_skill_label(skill_key) + " to level " + str(current_level + 1) + "."
+	_add_popup_for_cell(Vector2i(worker["assigned"]), _worker_skill_short_label(skill_key) + " L" + str(current_level + 1), Color("#f2d16b"))
 	_update_hud()
 
 
@@ -1184,8 +1240,207 @@ func _spawn_worker(cell: Vector2i, paid: bool) -> void:
 		"job_state": "idle",
 		"carry_stock": [0, 0, 0],
 		"work_timer": 0.0,
+		"skills": _worker_starting_skills(workers.size()),
+		"skill_xp": {
+			"fishing": 0,
+			"handling": 0,
+			"processing": 0,
+			"trading": 0
+		},
 		"paid": paid
 	})
+
+
+func _worker_starting_skills(worker_index: int) -> Dictionary:
+	var skills := {
+		"fishing": 1,
+		"handling": 1,
+		"processing": 1,
+		"trading": 1
+	}
+	match worker_index % 6:
+		0:
+			skills["fishing"] = 2
+		1:
+			skills["processing"] = 2
+		2:
+			skills["trading"] = 2
+		3:
+			skills["handling"] = 2
+		4:
+			skills["processing"] = 2
+			skills["trading"] = 2
+		_:
+			skills["fishing"] = 2
+			skills["handling"] = 2
+	return skills
+
+
+func _worker_job_key(worker: Dictionary) -> String:
+	var assigned: Vector2i = worker.get("assigned", Vector2i(-1, -1))
+	if assigned.x < 0 or assigned.y < 0 or assigned.x >= GRID_W or assigned.y >= GRID_H:
+		return "idle"
+	var tile: Dictionary = tiles[assigned.y][assigned.x]
+	if tile["kind"] == TileKind.WATER:
+		return "fish"
+	match int(tile["building"]):
+		BuildKind.POOL:
+			return "pool"
+		BuildKind.CUTTER:
+			return "cutter"
+		BuildKind.MARKET:
+			return "market"
+		BuildKind.STORAGE:
+			return "storage"
+		BuildKind.SMOKER:
+			return "smoker"
+		_:
+			return "idle"
+
+
+func _worker_job_label(job_key: String) -> String:
+	match job_key:
+		"fish":
+			return "fishing"
+		"pool":
+			return "pool handling"
+		"cutter":
+			return "cutter work"
+		"market":
+			return "market trade"
+		"storage":
+			return "storage handling"
+		"smoker":
+			return "smoker work"
+		_:
+			return "standby"
+
+
+func _worker_job_short_label(worker: Dictionary) -> String:
+	match _worker_job_key(worker):
+		"fish":
+			return "FISH"
+		"pool":
+			return "POOL"
+		"cutter":
+			return "CUT"
+		"market":
+			return "SELL"
+		"storage":
+			return "STORE"
+		"smoker":
+			return "SMOKE"
+		_:
+			return "IDLE"
+
+
+func _worker_skill_key_for_job(job_key: String) -> String:
+	match job_key:
+		"fish":
+			return "fishing"
+		"pool", "storage":
+			return "handling"
+		"cutter", "smoker":
+			return "processing"
+		"market":
+			return "trading"
+		_:
+			return ""
+
+
+func _worker_skill_label(skill_key: String) -> String:
+	match skill_key:
+		"fishing":
+			return "Fishing"
+		"handling":
+			return "Handling"
+		"processing":
+			return "Processing"
+		"trading":
+			return "Trade"
+		_:
+			return "Work"
+
+
+func _worker_skill_short_label(skill_key: String) -> String:
+	match skill_key:
+		"fishing":
+			return "F"
+		"handling":
+			return "H"
+		"processing":
+			return "P"
+		"trading":
+			return "T"
+		_:
+			return "?"
+
+
+func _worker_skill(worker: Dictionary, skill_key: String) -> int:
+	var skills: Dictionary = worker.get("skills", {})
+	return int(skills.get(skill_key, 1))
+
+
+func _worker_skill_xp(worker: Dictionary, skill_key: String) -> int:
+	var skill_xp: Dictionary = worker.get("skill_xp", {})
+	return int(skill_xp.get(skill_key, 0))
+
+
+func _worker_skill_xp_required(worker: Dictionary, skill_key: String) -> int:
+	return WORKER_SKILL_XP_BASE * _worker_skill(worker, skill_key)
+
+
+func _worker_training_cost(worker: Dictionary, skill_key: String) -> int:
+	return COST_WORKER_TRAIN * _worker_skill(worker, skill_key)
+
+
+func _worker_fish_seconds(worker: Dictionary) -> float:
+	var level := _worker_skill(worker, "fishing")
+	return WORKER_FISH_SECONDS / (1.0 + float(level - 1) * 0.22)
+
+
+func _award_worker_skill_xp(worker: Dictionary, skill_key: String, amount: int, popup_cell: Vector2i) -> Dictionary:
+	if skill_key.is_empty() or amount <= 0 or _worker_skill(worker, skill_key) >= WORKER_MAX_SKILL:
+		return worker
+
+	var skills: Dictionary = worker["skills"]
+	var skill_xp: Dictionary = worker["skill_xp"]
+	var current_level := int(skills.get(skill_key, 1))
+	var current_xp := int(skill_xp.get(skill_key, 0)) + amount
+	var required := WORKER_SKILL_XP_BASE * current_level
+	if current_xp < required:
+		skill_xp[skill_key] = current_xp
+		worker["skill_xp"] = skill_xp
+		return worker
+
+	current_xp -= required
+	current_level += 1
+	skills[skill_key] = current_level
+	skill_xp[skill_key] = current_xp if current_level < WORKER_MAX_SKILL else 0
+	worker["skills"] = skills
+	worker["skill_xp"] = skill_xp
+	_add_popup_for_cell(popup_cell, str(worker["name"]) + " " + _worker_skill_short_label(skill_key) + " L" + str(current_level), Color("#f2d16b"))
+	return worker
+
+
+func _award_station_worker_xp(building: int, skill_key: String, amount: int) -> void:
+	for worker_index in workers.size():
+		var worker: Dictionary = workers[worker_index]
+		var assigned: Vector2i = worker["assigned"]
+		if assigned.x < 0 or assigned.y < 0 or assigned.x >= GRID_W or assigned.y >= GRID_H:
+			continue
+		var tile: Dictionary = tiles[assigned.y][assigned.x]
+		if int(tile["building"]) != building or not _agent_reached(worker["pos"], Vector2(assigned.x, assigned.y)):
+			continue
+		workers[worker_index] = _award_worker_skill_xp(worker, skill_key, amount, assigned)
+
+
+func _worker_assignment_instruction(worker: Dictionary) -> String:
+	var job_key := _worker_job_key(worker)
+	if job_key == "idle":
+		return "On standby. Tap water for fishing, or a station for its job."
+	var skill_key := _worker_skill_key_for_job(job_key)
+	return _worker_job_label(job_key).capitalize() + " uses " + _worker_skill_label(skill_key) + " L" + str(_worker_skill(worker, skill_key)) + "."
 
 
 func _tick_workers(delta: float) -> void:
@@ -1207,6 +1462,7 @@ func _tick_worker_job(worker_index: int, worker: Dictionary, delta: float) -> Di
 
 	var tile: Dictionary = tiles[assigned.y][assigned.x]
 	if tile["kind"] != TileKind.WATER:
+		worker["job_state"] = "working" if _worker_job_key(worker) != "idle" else "idle"
 		return worker
 
 	return _tick_fishing_worker(worker_index, worker, delta)
@@ -1236,7 +1492,7 @@ func _tick_fishing_worker(worker_index: int, worker: Dictionary, delta: float) -
 	var state := str(worker["job_state"])
 	if state == "walk_to_water":
 		worker["job_state"] = "fishing"
-		worker["work_timer"] = WORKER_FISH_SECONDS
+		worker["work_timer"] = _worker_fish_seconds(worker)
 		status_text = _worker_name(worker_index) + " is casting from the dock."
 		return worker
 
@@ -1279,6 +1535,7 @@ func _worker_catch_fish(worker_index: int, worker: Dictionary) -> Dictionary:
 	var active_fish_index := _active_fish_index_in_cell(fishing_cell)
 	if active_fish_index >= 0:
 		active_fish_agents.remove_at(active_fish_index)
+	worker = _award_worker_skill_xp(worker, "fishing", 1, fishing_cell)
 	worker["job_state"] = "carry_to_pool"
 	worker["target"] = _worker_pool_target(worker)
 	status_text = _worker_name(worker_index) + " caught a " + _fish_name(fish_kind) + " and is carrying it to the pool." + _maybe_unlock_storage(fish_kind)
@@ -1514,6 +1771,7 @@ func _tick_cutters(delta: float) -> void:
 		cutter_progress -= required
 		meat += produced
 		meat_processed_total += produced
+		_award_station_worker_xp(BuildKind.CUTTER, "processing", 1)
 		status_text = "Cutters processed " + _fish_name(fish_kind) + " into " + str(produced) + " meat."
 		_add_popup("+" + str(produced) + " meat", _building_center(BuildKind.CUTTER), Color("#ffd7bb"))
 
@@ -1539,6 +1797,7 @@ func _tick_smokers(delta: float) -> void:
 		smoker_progress -= required
 		meat -= SMOKER_INPUT_MEAT
 		smoked_meat += SMOKER_OUTPUT_SMOKED
+		_award_station_worker_xp(BuildKind.SMOKER, "processing", 1)
 		status_text = "Smoker turned " + str(SMOKER_INPUT_MEAT) + " meat into smoked meat."
 		_add_popup("+" + str(SMOKER_OUTPUT_SMOKED) + " smoked", _building_center(BuildKind.SMOKER), Color("#e8a35c"))
 
@@ -1638,6 +1897,7 @@ func _tick_customers(delta: float) -> void:
 		return
 
 	money += earned
+	_award_station_worker_xp(BuildKind.MARKET, "trading", max(1, sale_units))
 	var sold_parts: Array = []
 	if sold_smoked > 0:
 		sold_parts.append(str(sold_smoked) + " smoked meat")
@@ -1702,7 +1962,7 @@ func _tick_customer_agents(delta: float) -> void:
 
 func _next_customer_seconds() -> float:
 	var pull := float(_building_count(BuildKind.MARKET)) * 0.25
-	pull += float(_worker_count_assigned_to_building(BuildKind.MARKET)) * 0.2
+	pull += _worker_market_pull()
 	if _is_smoker_unlocked():
 		pull += 0.2
 	return max(1.15, randf_range(2.4, 4.1) - pull)
@@ -2057,6 +2317,59 @@ func _worker_count_assigned_to_building(building: int) -> int:
 	return count
 
 
+func _worker_pool_capacity_bonus(cell: Vector2i) -> int:
+	var bonus := 0
+	for worker in workers:
+		if not _worker_is_staffing_cell(worker, cell):
+			continue
+		bonus += WORKER_POOL_CAPACITY_BONUS + _worker_skill(worker, "handling") - 1
+	return bonus
+
+
+func _worker_storage_capacity_bonus(cell: Vector2i) -> int:
+	var bonus := 0
+	for worker in workers:
+		if not _worker_is_staffing_cell(worker, cell):
+			continue
+		bonus += WORKER_STORAGE_CAPACITY_BONUS + (_worker_skill(worker, "handling") - 1) * 2
+	return bonus
+
+
+func _worker_processing_rate_bonus(cell: Vector2i, base_bonus: float) -> float:
+	var bonus := 0.0
+	for worker in workers:
+		if not _worker_is_staffing_cell(worker, cell):
+			continue
+		bonus += base_bonus * (1.0 + float(_worker_skill(worker, "processing") - 1) * 0.5)
+	return bonus
+
+
+func _worker_market_capacity_bonus(cell: Vector2i) -> int:
+	var bonus := 0
+	for worker in workers:
+		if not _worker_is_staffing_cell(worker, cell):
+			continue
+		bonus += _worker_skill(worker, "trading")
+	return bonus
+
+
+func _worker_market_pull() -> float:
+	var pull := 0.0
+	for worker in workers:
+		var job_key := _worker_job_key(worker)
+		if job_key != "market":
+			continue
+		var assigned: Vector2i = worker["assigned"]
+		if _agent_reached(worker["pos"], Vector2(assigned.x, assigned.y)):
+			pull += 0.2 * float(_worker_skill(worker, "trading"))
+	return pull
+
+
+func _worker_is_staffing_cell(worker: Dictionary, cell: Vector2i) -> bool:
+	var assigned: Vector2i = worker["assigned"]
+	return assigned == cell and _agent_reached(worker["pos"], Vector2(cell.x, cell.y)) and _worker_job_key(worker) != "idle"
+
+
 func _pool_capacity() -> int:
 	var capacity := 0
 	for y in GRID_H:
@@ -2071,7 +2384,7 @@ func _pool_capacity_at(cell: Vector2i) -> int:
 	var capacity := 4 + pool_level * 2
 	if _has_adjacent_tile_kind(cell, TileKind.WATER):
 		capacity += 2
-	capacity += _worker_count_assigned_to(cell) * WORKER_POOL_CAPACITY_BONUS
+	capacity += _worker_pool_capacity_bonus(cell)
 	return capacity
 
 
@@ -2123,6 +2436,7 @@ func _storage_capacity_at(cell: Vector2i) -> int:
 	var capacity := 14
 	if _has_adjacent_building(cell, BuildKind.MARKET):
 		capacity += 6
+	capacity += _worker_storage_capacity_bonus(cell)
 	return capacity
 
 
@@ -2187,7 +2501,7 @@ func _cutter_rate_at(cell: Vector2i) -> float:
 	var rate := 1.0
 	if _has_adjacent_building(cell, BuildKind.POOL):
 		rate += 0.5
-	rate += float(_worker_count_assigned_to(cell)) * WORKER_CUTTER_RATE_BONUS
+	rate += _worker_processing_rate_bonus(cell, WORKER_CUTTER_RATE_BONUS)
 	return rate
 
 
@@ -2213,7 +2527,7 @@ func _smoker_rate_at(cell: Vector2i) -> float:
 		rate += 0.45
 	if _has_adjacent_building(cell, BuildKind.STORAGE):
 		rate += 0.25
-	rate += float(_worker_count_assigned_to(cell)) * WORKER_SMOKER_RATE_BONUS
+	rate += _worker_processing_rate_bonus(cell, WORKER_SMOKER_RATE_BONUS)
 	return rate
 
 
@@ -2235,7 +2549,7 @@ func _market_capacity_at(cell: Vector2i) -> int:
 		capacity += 1
 	if _is_plaza_connected(cell):
 		capacity += 1
-	capacity += _worker_count_assigned_to(cell)
+	capacity += _worker_market_capacity_bonus(cell)
 	return capacity
 
 
@@ -2461,7 +2775,7 @@ func _worker_assignment_hint(cell: Vector2i) -> String:
 		BuildKind.MARKET:
 			return "Assigned market workers serve more buyers and attract buyers faster."
 		BuildKind.STORAGE:
-			return "Storage workers are standing by for future hauling jobs."
+			return "Storage workers add meat capacity and improve their Handling skill."
 		BuildKind.SMOKER:
 			return "Assigned smoker workers speed up smoked meat production."
 		_:
@@ -2953,6 +3267,24 @@ func _update_tool_buttons() -> void:
 		else:
 			hire_button.text = "Hire $" + str(COST_WORKER) if workers.size() < MAX_WORKERS else "Crew full"
 			hire_button.modulate = _affordability_color(COST_WORKER) if workers.size() < MAX_WORKERS else Color("#6f7782")
+	if command_buttons.has("train"):
+		var train_button: Button = command_buttons["train"]
+		if selected_worker_index < 0 or selected_worker_index >= workers.size():
+			train_button.text = "Train job"
+			train_button.modulate = Color("#6f7782")
+		else:
+			var worker: Dictionary = workers[selected_worker_index]
+			var skill_key := _worker_skill_key_for_job(_worker_job_key(worker))
+			if skill_key.is_empty():
+				train_button.text = "Train job"
+				train_button.modulate = Color("#6f7782")
+			elif _worker_skill(worker, skill_key) >= WORKER_MAX_SKILL:
+				train_button.text = "Mastered"
+				train_button.modulate = Color("#6f7782")
+			else:
+				var train_cost := _worker_training_cost(worker, skill_key)
+				train_button.text = "Train $" + str(train_cost)
+				train_button.modulate = _affordability_color(train_cost)
 
 
 func _calculate_grid_rect() -> void:
@@ -2988,6 +3320,7 @@ func _draw_grid() -> void:
 	for y in GRID_H:
 		for x in GRID_W:
 			var tile: Dictionary = tiles[y][x]
+			var cell := Vector2i(x, y)
 			var rect := Rect2(
 				grid_rect.position + Vector2(float(x) * tile_px, float(y) * tile_px) - map_camera * tile_px,
 				Vector2(tile_px, tile_px)
@@ -2996,17 +3329,29 @@ func _draw_grid() -> void:
 				continue
 
 			var fill := Color("#5e6747")
+			var texture: Texture2D = LAND_TILE_TEXTURE
+			var texture_tint := Color.WHITE
 			if tile["kind"] == TileKind.WATER:
 				fill = _water_zone_color(int(tile["water_zone"]))
+				texture = WATER_TILE_TEXTURE
+				texture_tint = _water_zone_texture_tint(int(tile["water_zone"]))
 			elif tile["kind"] == TileKind.DOCK:
 				fill = Color("#66503d")
+				texture = DOCK_TILE_TEXTURE
 			elif tile["kind"] == TileKind.PLAZA:
 				fill = Color("#6a6258")
+				texture = PLAZA_TILE_TEXTURE
 			elif tile["kind"] == TileKind.ROAD:
 				fill = Color("#504a45")
+				texture = ROAD_TILE_TEXTURE
 			elif tile["kind"] == TileKind.EXPANSION:
 				fill = Color("#4d5660")
+				texture = FRONTIER_TILE_TEXTURE
 			draw_rect(rect, fill)
+			if tile["kind"] == TileKind.ROAD:
+				_draw_rotated_tile_texture(rect, texture, PI * 0.5, texture_tint)
+			else:
+				draw_texture_rect(texture, rect, false, texture_tint)
 			draw_rect(rect, Color("#0e151b"), false, 2.0)
 
 			if tile["kind"] == TileKind.WATER:
@@ -3021,6 +3366,8 @@ func _draw_grid() -> void:
 				_draw_expansion_tile(rect)
 			else:
 				_draw_land_tile(rect, int(tile["building"]))
+			if tile["kind"] == TileKind.DOCK and int(tile["building"]) == BuildKind.NONE and _is_dock_lamp_cell(cell):
+				_draw_dock_lamp(rect)
 
 			if tile["building"] != BuildKind.NONE:
 				var label := _building_label(int(tile["building"]))
@@ -3028,6 +3375,26 @@ func _draw_grid() -> void:
 
 			if selected_cell == Vector2i(x, y):
 				draw_rect(rect.grow(2.0), Color("#f2d16b"), false, 3.0)
+
+
+func _water_zone_texture_tint(water_zone: int) -> Color:
+	match water_zone:
+		WaterZone.SHALLOW:
+			return Color("#c8ffff")
+		WaterZone.COLD:
+			return Color("#9fc7e2")
+		WaterZone.DEEP:
+			return Color("#55779c")
+		WaterZone.MONSTER:
+			return Color("#43576b")
+		_:
+			return Color("#8fd6dd")
+
+
+func _draw_rotated_tile_texture(rect: Rect2, texture: Texture2D, angle: float, tint: Color) -> void:
+	draw_set_transform(rect.get_center(), angle, Vector2.ONE)
+	draw_texture_rect(texture, Rect2(-rect.size * 0.5, rect.size), false, tint)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _draw_water_tile(rect: Rect2, fish_count: int, fish_kind: int, water_zone: int) -> void:
@@ -3078,36 +3445,34 @@ func _draw_water_zone_detail(rect: Rect2, water_zone: int) -> void:
 
 
 func _draw_road_tile(rect: Rect2) -> void:
-	draw_rect(rect, Color("#504a45"))
-	draw_line(rect.position + Vector2(0, rect.size.y * 0.5), rect.end - Vector2(0, rect.size.y * 0.5), Color("#e8d28d"), 3.0)
-	draw_line(rect.position + Vector2(8, rect.size.y * 0.5), rect.position + Vector2(rect.size.x - 8, rect.size.y * 0.5), Color("#2c2927"), 1.0)
+	draw_line(rect.position + Vector2(5, rect.size.y * 0.5), rect.end - Vector2(5, rect.size.y * 0.5), Color("#f5efe1", 0.22), 1.0)
 
 
 func _draw_dock_tile(rect: Rect2, building: int) -> void:
-	draw_rect(rect, Color("#66503d"))
-	for offset in [0.25, 0.5, 0.75]:
-		var x: float = rect.position.x + rect.size.x * float(offset)
-		draw_line(Vector2(x, rect.position.y + 3), Vector2(x, rect.end.y - 3), Color("#2f261f"), 1.5)
-	draw_line(rect.position + Vector2(4, rect.size.y * 0.22), rect.end - Vector2(4, rect.size.y * 0.78), Color("#a17a54"), 2.0)
-	draw_line(rect.position + Vector2(4, rect.size.y * 0.78), rect.end - Vector2(4, rect.size.y * 0.22), Color("#3d3026"), 1.0)
 	if building != BuildKind.NONE:
 		_draw_land_tile(rect, building)
 
 
 func _draw_plaza_tile(rect: Rect2, building: int) -> void:
-	draw_rect(rect, Color("#6a6258"))
-	draw_line(rect.position + Vector2(0, rect.size.y * 0.5), rect.position + Vector2(rect.size.x, rect.size.y * 0.5), Color("#8b8174"), 1.5)
-	draw_line(rect.position + Vector2(rect.size.x * 0.5, 0), rect.position + Vector2(rect.size.x * 0.5, rect.size.y), Color("#514a42"), 1.5)
-	draw_circle(rect.get_center(), 2.5, Color("#c6b99d"))
 	if building != BuildKind.NONE:
 		_draw_land_tile(rect, building)
 
 
 func _draw_expansion_tile(rect: Rect2) -> void:
-	draw_rect(rect, Color("#4d5660"))
-	draw_line(rect.position + Vector2(8, 8), rect.end - Vector2(8, 8), Color("#9aa6b2"), 2.0)
-	draw_line(rect.position + Vector2(rect.size.x - 8, 8), rect.position + Vector2(8, rect.size.y - 8), Color("#9aa6b2"), 2.0)
-	draw_circle(rect.get_center(), 3.0, Color("#c9d2d8"))
+	draw_line(rect.position + Vector2(8, 8), rect.end - Vector2(8, 8), Color("#d5e7ee", 0.72), 2.0)
+	draw_line(rect.position + Vector2(rect.size.x - 8, 8), rect.position + Vector2(8, rect.size.y - 8), Color("#d5e7ee", 0.72), 2.0)
+	draw_circle(rect.get_center(), 3.0, Color("#f2d16b"))
+
+
+func _is_dock_lamp_cell(cell: Vector2i) -> bool:
+	return cell.y == WATER_ROWS and (cell.x == 3 or cell.x == 9)
+
+
+func _draw_dock_lamp(rect: Rect2) -> void:
+	var lamp_size := Vector2(tile_px * 0.54, tile_px * 0.78)
+	var lamp_rect := Rect2(rect.get_center() - Vector2(lamp_size.x * 0.5, lamp_size.y * 0.72), lamp_size)
+	draw_circle(rect.get_center() + Vector2(0, -tile_px * 0.04), tile_px * 0.32, Color("#f2b860", 0.16))
+	draw_texture_rect(DOCK_LAMP_TEXTURE, lamp_rect, false)
 
 
 func _draw_people() -> void:
@@ -3137,8 +3502,13 @@ func _draw_people() -> void:
 		var worker_pos: Vector2 = worker["pos"]
 		var worker_screen := _agent_screen_pos(worker_pos)
 		if grid_rect.grow(tile_px * 0.6).has_point(worker_screen):
+			if _worker_is_visibly_working(worker):
+				var work_phase := float(Time.get_ticks_msec()) * 0.008 + float(i)
+				worker_screen += Vector2(sin(work_phase) * tile_px * 0.025, cos(work_phase * 1.4) * tile_px * 0.018)
+				_draw_worker_activity(worker_screen, worker)
 			_draw_person(worker_screen, Color("#f2d16b"), i == selected_worker_index, "W")
 			_draw_worker_carry(worker_screen, worker)
+			_draw_worker_job_badge(worker_screen, worker)
 
 	var player_screen := _agent_screen_pos(player_agent.position)
 	if grid_rect.grow(tile_px * 0.6).has_point(player_screen):
@@ -3151,7 +3521,7 @@ func _draw_active_fishing() -> void:
 		var fish_agent = fish
 		var fish_screen := _world_to_screen(fish_agent.position)
 		if grid_rect.grow(tile_px * 0.3).has_point(fish_screen):
-			_draw_fish(fish_screen, tile_px * 0.13, fish_agent.fish_kind)
+			_draw_fish(fish_screen, tile_px * 0.13, fish_agent.fish_kind, fish_agent.velocity)
 
 	if not _is_boat_unlocked():
 		return
@@ -3161,16 +3531,25 @@ func _draw_active_fishing() -> void:
 	var net_center := _boat_net_center()
 	var net_screen := _world_to_screen(net_center)
 	var net_radius: float = _boat_net_radius() * tile_px
-	draw_line(boat_screen, net_screen, Color("#d9c6a1"), 2.0)
-	draw_arc(net_screen, net_radius, 0.0, TAU, 32, Color("#d9c6a1"), 2.0)
+	var net_fill: float = float(_boat_net_count()) / float(max(1, _boat_net_capacity()))
+	var rope_color := Color("#d9c6a1").lerp(Color("#ffb36b"), net_fill * 0.45)
+	draw_line(boat_screen, net_screen, rope_color, 2.0)
+	draw_circle(net_screen, net_radius * 0.88, Color("#173a53", 0.18 + net_fill * 0.13))
+	draw_arc(net_screen, net_radius, 0.0, TAU, 32, rope_color, 2.0)
 	draw_arc(net_screen, net_radius * 0.62, 0.0, TAU, 24, Color("#8fb8bd"), 1.0)
+	var buoy_count: int = max(6, 6 + net_level * 2)
+	for buoy_index in buoy_count:
+		var buoy_angle := TAU * float(buoy_index) / float(buoy_count)
+		var buoy_position := net_screen + Vector2(cos(buoy_angle), sin(buoy_angle)) * net_radius
+		var buoy_color := Color("#e87d52") if buoy_index % 2 == 0 else Color("#f5efe1")
+		draw_circle(buoy_position, max(2.0, tile_px * 0.038), buoy_color)
 
 	var caught_index := 0
 	for fish_kind: int in [FishKind.MINNOW, FishKind.CARP, FishKind.SILVERFISH]:
 		for i in int(boat_agent.fish_stock[fish_kind]):
 			var angle := float(caught_index) * 1.7
 			var offset: Vector2 = Vector2(cos(angle), sin(angle)) * min(net_radius * 0.55, 5.0 + float(caught_index % 4) * 3.0)
-			_draw_fish(net_screen + offset, tile_px * 0.09, fish_kind)
+			_draw_fish(net_screen + offset, tile_px * 0.045, fish_kind, offset)
 			caught_index += 1
 
 	_draw_boat(boat_screen)
@@ -3182,19 +3561,20 @@ func _draw_active_fishing() -> void:
 func _draw_boat(center: Vector2) -> void:
 	var direction := _boat_direction()
 	var right := direction.orthogonal()
-	var bow := center + direction * tile_px * 0.24
-	var left := center - direction * tile_px * 0.24 - right * tile_px * 0.16
-	var stern := center - direction * tile_px * 0.33
-	var right_point := center - direction * tile_px * 0.24 + right * tile_px * 0.16
-	draw_polygon(
-		PackedVector2Array([bow, right_point, stern, left]),
-		PackedColorArray([Color("#7a4f3b"), Color("#6a422f"), Color("#4d3025"), Color("#6a422f")])
-	)
-	draw_polyline(PackedVector2Array([bow, right_point, stern, left, bow]), Color("#f0d597"), 2.0)
+	var stern := center - direction * tile_px * 0.42
+	var wake_color := Color("#b8edf3", 0.62)
+	draw_line(stern - right * tile_px * 0.08, stern - direction * tile_px * 0.48 - right * tile_px * 0.30, wake_color, 1.6)
+	draw_line(stern + right * tile_px * 0.08, stern - direction * tile_px * 0.48 + right * tile_px * 0.30, wake_color, 1.6)
+	draw_arc(stern - direction * tile_px * 0.28, tile_px * 0.25, PI * 0.18, PI * 0.82, 12, Color("#7ec3d4", 0.52), 1.2)
+
+	var boat_size := Vector2(tile_px * 1.34, tile_px * 0.90)
+	draw_set_transform(center, direction.angle(), Vector2.ONE)
+	draw_texture_rect(BOAT_TEXTURE, Rect2(-boat_size * 0.5, boat_size), false)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if boat_agent.level >= 2:
-		draw_line(center - right * tile_px * 0.13, center + right * tile_px * 0.13, Color("#9fe4dd"), 2.0)
+		draw_circle(center - direction * tile_px * 0.16 + right * tile_px * 0.20, tile_px * 0.035, Color("#9fe4dd"))
 	if boat_agent.level >= 3:
-		draw_circle(center - direction * tile_px * 0.11, tile_px * 0.045, Color("#f2d16b"))
+		draw_circle(center - direction * tile_px * 0.20 - right * tile_px * 0.18, tile_px * 0.045, Color("#f2d16b"))
 
 
 func _draw_monster_warning_meter(boat_screen: Vector2) -> void:
@@ -3215,14 +3595,13 @@ func _draw_dock_order_board() -> void:
 	if not _is_dock_order_unlocked():
 		return
 
-	var rect := _cell_rect(_order_board_cell()).grow(-tile_px * 0.12)
-	if not grid_rect.intersects(rect):
+	var cell_rect := _cell_rect(_order_board_cell())
+	if not grid_rect.intersects(cell_rect):
 		return
 	var font := get_theme_default_font()
-	draw_rect(rect, Color("#2c2722"))
-	draw_rect(rect, Color("#f0d597"), false, 2.0)
-	draw_line(rect.position + Vector2(rect.size.x * 0.5, rect.size.y), rect.position + Vector2(rect.size.x * 0.5, rect.size.y + tile_px * 0.14), Color("#2c2722"), 3.0)
-	draw_string(font, rect.position + Vector2(0, 13), "ORD", HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, 12, Color("#f0d597"))
+	var board_size := Vector2(tile_px * 1.16, tile_px * 1.02)
+	var board_rect := Rect2(cell_rect.get_center() - Vector2(board_size.x * 0.5, board_size.y * 0.56), board_size)
+	draw_texture_rect(DOCK_ORDER_BOARD_TEXTURE, board_rect, false)
 	var label := "wait"
 	if dock_order_active:
 		var parts: Array = []
@@ -3231,7 +3610,10 @@ func _draw_dock_order_board() -> void:
 		if dock_order_need_smoked > 0:
 			parts.append("S" + str(dock_order_delivered_smoked) + "/" + str(dock_order_need_smoked))
 		label = " ".join(parts)
-	draw_string(font, rect.position + Vector2(0, rect.size.y - 5), label, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, 10, Color("#f5efe1"))
+	var parchment_x := board_rect.position.x + board_rect.size.x * 0.27
+	var parchment_width := board_rect.size.x * 0.53
+	draw_string(font, Vector2(parchment_x, board_rect.position.y + board_rect.size.y * 0.43), "ORD", HORIZONTAL_ALIGNMENT_CENTER, parchment_width, 8, Color("#473722"))
+	draw_string(font, Vector2(parchment_x, board_rect.position.y + board_rect.size.y * 0.58), label, HORIZONTAL_ALIGNMENT_CENTER, parchment_width, 8, Color("#473722"))
 
 
 func _agent_screen_pos(pos: Vector2) -> Vector2:
@@ -3280,11 +3662,43 @@ func _draw_worker_carry(center: Vector2, worker: Dictionary) -> void:
 	_draw_want_bubble(center, "F" + str(carried), Color("#f2d16b"))
 
 
+func _draw_worker_job_badge(center: Vector2, worker: Dictionary) -> void:
+	var job_key := _worker_job_key(worker)
+	var skill_key := _worker_skill_key_for_job(job_key)
+	var label := _worker_job_short_label(worker)
+	if not skill_key.is_empty():
+		label += " " + _worker_skill_short_label(skill_key) + str(_worker_skill(worker, skill_key))
+	var width: float = maxf(tile_px * 0.44, float(label.length()) * 5.8 + 6.0)
+	var badge := Rect2(center + Vector2(-width * 0.5, tile_px * 0.26), Vector2(width, 12.0))
+	var border_color := Color("#f2d16b") if job_key != "idle" else Color("#8d98a0")
+	draw_rect(badge, Color("#17212b", 0.88))
+	draw_rect(badge, border_color, false, 1.0)
+	draw_string(get_theme_default_font(), badge.position + Vector2(0, 9.5), label, HORIZONTAL_ALIGNMENT_CENTER, badge.size.x, 9, Color("#f5efe1"))
+
+
+func _draw_worker_activity(center: Vector2, worker: Dictionary) -> void:
+	var job_key := _worker_job_key(worker)
+	var activity_color := Color("#f2d16b")
+	match job_key:
+		"fish":
+			draw_arc(center + Vector2(0, -tile_px * 0.18), tile_px * 0.21, PI * 1.08, PI * 1.90, 10, Color("#9fe4dd"), 1.2)
+		"pool", "storage":
+			draw_circle(center + Vector2(-tile_px * 0.15, -tile_px * 0.1), tile_px * 0.035, Color("#9fe4dd"))
+			draw_circle(center + Vector2(tile_px * 0.14, -tile_px * 0.2), tile_px * 0.025, Color("#d9f2f5"))
+		"cutter", "smoker":
+			activity_color = Color("#ffb36b")
+			draw_line(center + Vector2(-tile_px * 0.16, -tile_px * 0.22), center + Vector2(tile_px * 0.16, -tile_px * 0.08), activity_color, 1.6)
+			draw_line(center + Vector2(-tile_px * 0.08, -tile_px * 0.26), center + Vector2(tile_px * 0.08, -tile_px * 0.04), activity_color, 1.2)
+		"market":
+			activity_color = Color("#b7ef8a")
+			draw_circle(center + Vector2(0, -tile_px * 0.2), tile_px * 0.06, activity_color, false, 1.4)
+			draw_line(center + Vector2(-tile_px * 0.08, -tile_px * 0.2), center + Vector2(tile_px * 0.08, -tile_px * 0.2), activity_color, 1.0)
+
+
 func _draw_land_tile(rect: Rect2, building: int) -> void:
 	match building:
 		BuildKind.NONE:
-			draw_circle(rect.get_center() + Vector2(-8, -4), 3.0, Color("#76805a"))
-			draw_circle(rect.get_center() + Vector2(10, 8), 2.5, Color("#788252"))
+			pass
 		BuildKind.POOL:
 			_draw_building_art(rect, LIVE_POOL_TEXTURE)
 		BuildKind.CUTTER:
@@ -3318,18 +3732,21 @@ func _draw_building_art(rect: Rect2, texture: Texture2D) -> void:
 	draw_texture_rect(texture, art_rect, false)
 
 
-func _draw_fish(center: Vector2, scale: float, fish_kind: int) -> void:
-	var color := _fish_color(fish_kind)
-	draw_circle(center, scale * 0.48, color)
-	draw_polygon(
-		PackedVector2Array([
-			center + Vector2(scale * 0.38, 0),
-			center + Vector2(scale * 0.82, -scale * 0.36),
-			center + Vector2(scale * 0.82, scale * 0.36)
-		]),
-		PackedColorArray([color, color, color])
-	)
-	draw_circle(center + Vector2(-scale * 0.18, -scale * 0.1), scale * 0.08, Color("#17212b"))
+func _draw_fish(center: Vector2, scale: float, fish_kind: int, direction: Vector2 = Vector2.RIGHT) -> void:
+	var texture: Texture2D = MINNOW_TEXTURE
+	var sprite_size := Vector2(scale * 3.0, scale * 1.48)
+	match fish_kind:
+		FishKind.CARP:
+			texture = CARP_TEXTURE
+			sprite_size = Vector2(scale * 3.45, scale * 1.78)
+		FishKind.SILVERFISH:
+			texture = SILVERFISH_TEXTURE
+			sprite_size = Vector2(scale * 3.50, scale * 1.50)
+	if direction.length() <= 0.001:
+		direction = Vector2.RIGHT
+	draw_set_transform(center, direction.angle(), Vector2.ONE)
+	draw_texture_rect(texture, Rect2(-sprite_size * 0.5, sprite_size), false)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _draw_footer_hint() -> void:
@@ -3345,9 +3762,10 @@ func _draw_footer_hint() -> void:
 				hint = "Fish: stand at the dock and tap a visible fish in nearby water. Basket " + str(_player_fish_total()) + "/" + str(PLAYER_FISH_CAPACITY) + "."
 		TOOL_PEOPLE:
 			if selected_worker_index >= 0 and selected_worker_index < workers.size():
-				hint = "People: " + _worker_name(selected_worker_index) + " selected. Tap water, a building, or land."
+				var worker: Dictionary = workers[selected_worker_index]
+				hint = "People: " + _worker_name(selected_worker_index) + ". " + _worker_assignment_instruction(worker) + " Tap a work target to reassign."
 			else:
-				hint = "People: tap a worker, then tap water, a building, or land."
+				hint = "People: tap a worker, then water, a pool, cutter, market, storage, or smoker."
 		TOOL_EXPAND:
 			hint = "Expand: tap a frontier tile touching territory you already own."
 		TOOL_MAP:
@@ -3441,19 +3859,57 @@ func _selected_tile_text() -> String:
 
 func _worker_state_text(worker: Dictionary, assigned: Vector2i) -> String:
 	var state := str(worker["job_state"])
+	var job_key := _worker_job_key(worker)
+	var skill_key := _worker_skill_key_for_job(job_key)
+	var skill_text := ""
+	if not skill_key.is_empty():
+		skill_text = _worker_skill_label(skill_key) + " L" + str(_worker_skill(worker, skill_key)) + " " + _worker_skill_progress_text(worker, skill_key) + "."
 	if state == "walk_to_water":
-		return "Walking to the dock to fish at " + str(assigned) + "."
+		return "Walking to the dock to fish at " + str(assigned) + ". " + skill_text
 	if state == "fishing":
-		return "Fishing from the dock at " + str(assigned) + "."
+		return "Fishing from the dock at " + str(assigned) + ". " + skill_text
 	if state == "carry_to_pool":
-		return "Carrying " + str(_worker_carry_total(worker)) + " fish to the pool."
+		return "Carrying " + str(_worker_carry_total(worker)) + " fish to the pool. " + skill_text
 	if state == "waiting_for_pool":
-		return "Holding fish until there is pool space."
+		return "Holding fish until there is pool space. " + skill_text
 	if state == "walk_to_assignment":
-		return "Walking to their assigned station at " + str(assigned) + "."
+		return "Walking to their assigned station at " + str(assigned) + ". " + skill_text
+	if state == "working":
+		return "Working as " + _worker_job_label(job_key) + ". " + _worker_job_effect_text(worker) + " " + skill_text
 	if assigned.x >= 0 and assigned.y >= 0:
-		return _worker_assignment_hint(assigned)
+		if job_key != "idle":
+			return "Ready for " + _worker_job_label(job_key) + ". " + _worker_job_effect_text(worker) + " " + skill_text
 	return "Standing by."
+
+
+func _worker_skill_progress_text(worker: Dictionary, skill_key: String) -> String:
+	if _worker_skill(worker, skill_key) >= WORKER_MAX_SKILL:
+		return "mastered"
+	return str(_worker_skill_xp(worker, skill_key)) + "/" + str(_worker_skill_xp_required(worker, skill_key)) + " XP"
+
+
+func _worker_job_effect_text(worker: Dictionary) -> String:
+	var job_key := _worker_job_key(worker)
+	match job_key:
+		"fish":
+			return "One catch every " + _format_ratio(_worker_fish_seconds(worker)) + "s."
+		"pool":
+			return "Adds +" + str(WORKER_POOL_CAPACITY_BONUS + _worker_skill(worker, "handling") - 1) + " live capacity."
+		"storage":
+			return "Adds +" + str(WORKER_STORAGE_CAPACITY_BONUS + (_worker_skill(worker, "handling") - 1) * 2) + " meat capacity."
+		"cutter":
+			return "Adds +" + _format_ratio(WORKER_CUTTER_RATE_BONUS * (1.0 + float(_worker_skill(worker, "processing") - 1) * 0.5)) + " cutter rate."
+		"smoker":
+			return "Adds +" + _format_ratio(WORKER_SMOKER_RATE_BONUS * (1.0 + float(_worker_skill(worker, "processing") - 1) * 0.5)) + " smoker rate."
+		"market":
+			return "Adds +" + str(_worker_skill(worker, "trading")) + " sales per tick."
+		_:
+			return ""
+
+
+func _worker_is_visibly_working(worker: Dictionary) -> bool:
+	var state := str(worker["job_state"])
+	return state == "fishing" or state == "working"
 
 
 func _building_label(building: int) -> String:

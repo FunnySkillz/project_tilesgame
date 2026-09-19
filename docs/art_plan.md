@@ -77,12 +77,17 @@ Generate this before final danger polish if the people layer becomes the main fe
 
 Do this before final danger polish because fishing is now a signature interaction:
 
-- small player boat
-- visible trailing net in empty, partly full, and full states
-- readable minnow, carp, and silverfish sprites
-- simple wake, ripple, and net-catch effects
-- dock-unload feedback
-- shallow/cold/deep water tile variants once fishing zones exist
+Status: core runtime sprite pass implemented.
+
+- [x] small player boat
+- [x] readable minnow, carp, and silverfish sprites
+- [x] directional boat and fish rendering
+- [x] wake, ripple, and net-fill feedback
+- [x] visible trailing net with empty, partly full, and full states driven by real stock
+- [x] dock-unload feedback from the existing popup and stock systems
+- [x] shared water tile art with shallow, cold, deep, and monster zone tinting
+
+The boat and fish are transparent runtime sprites. The net stays procedural for now: its radius, buoy count, fill tint, visible caught fish, and tow line all reflect its real capacity and stock. This is clearer than a fixed raster mesh while upgrades are still changing the net size.
 
 ### Phase 6: Automation And Trucks
 
@@ -135,11 +140,15 @@ The first runtime sprites were generated from that direction, cleaned to transpa
 - `live_pool.png` for pool buildings
 - `cutter.png` for manual and staffed processing stations
 - `market.png` for selling stalls
+- `boat.png` for active offshore fishing
+- `minnow.png`, `carp.png`, and `silverfish.png` for visible catches
+- `tiles/water.png`, `tiles/dock.png`, `tiles/plaza.png`, `tiles/road.png`, `tiles/land.png`, and `tiles/frontier.png` for the live map surface
+- `dock_lamp.png` and `dock_order_board.png` for the first dock landmarks
 
 `scripts/main.gd` now draws these assets over the same entity and building positions that previously used procedural placeholders. Selection rings, carry bubbles, buyer wants, progress bars, rules, and touch controls remain code-drawn so the art does not obscure gameplay state.
 
-The boat upgrade path, water zones, fish, storage, smoker, dock order board, and frontier remain procedural for now. They need distinct runtime sprites once their gameplay presentation and scale are proven in regular playtests.
+The boat and fish now rotate from their real movement direction. The boat has code-drawn wake and upgrade indicators, while the net remains capacity-aware procedural rendering. The terrain pack is a shared visual baseline: zone tints preserve water gameplay readability, and the map remains clear at phone scale. Storage, smoker, production-level variants, and additional dock dressing still need their own production assets once their gameplay presentation and scale are proven in regular playtests.
 
 Next art milestone:
 
-Generate the active-fishing readability pack: the player boat, three net states, minnow/carp/silverfish sprites, wake and splash effects, then dock lamps, crates, and order-board props. After that, produce a tile atlas for water, dock, plaza, road, land, and frontier rather than separate full-scene concept images.
+Create upgrade-aware production art: visual levels for the pool, cutter, market, net, and boat, plus storage and smoker sprites. Follow with crates, fish racks, and market-stall dressing to make the growing base feel inhabited. Keep the larger concept sheets as reference only; runtime assets should remain isolated, transparent where appropriate, and sized for their gameplay footprint.
